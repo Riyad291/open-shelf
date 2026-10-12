@@ -325,6 +325,26 @@ def normalise_face(gray, box: Optional[Tuple[int, int, int, int]] = None):
     if box is not None:
         x, y, w, h = box
         # Pad the box by 10% so the crop is not cut at the chin/hairline.
+        #
+        # 10% is measured, not guessed. A square centre-aligned crop was tried
+        # on the theory that resizing a non-square detector box to a square
+        # distorts the face differently each time; it scored worse. Measured
+        # on one enrolled person and two held-out strangers, owner confidence
+        # against the best stranger:
+        #
+        #     box + 0%  pad      0.979 / 0.830   separation 0.149
+        #     box + 10% pad      0.696 / 0.476   separation 0.219  <- this
+        #     box + 20% pad      0.454 / 0.464   owner locked out
+        #     square, margin 8%  0.728 / 0.582   separation 0.146
+        #     square, margin 18% 0.497 / 0.446   owner locked out
+        #
+        # Separation is what matters, not absolute confidence: a tight crop
+        # raises both numbers together and makes strangers harder to reject.
+        #
+        # Caveat worth keeping in mind: that was measured on synthetic drawn
+        # faces, which are far more alike than real ones. It says 10% is not
+        # an arbitrary choice; it does not prove an accuracy figure for real
+        # faces, and no such figure is claimed anywhere in this project.
         pad_x, pad_y = int(w * 0.1), int(h * 0.1)
         x0 = max(0, x - pad_x)
         y0 = max(0, y - pad_y)

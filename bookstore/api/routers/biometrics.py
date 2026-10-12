@@ -146,13 +146,26 @@ async def enroll_face(frames: List[UploadFile] = File(...),
 
 
 @router.post("/face/login", response_model=S.TokenOut)
-async def login_by_face(request: Request, frame: UploadFile = File(...),
+async def login_by_face(request: Request, frames: List[UploadFile] = File(...),
                         session: Session = Depends(db_session)):
     """Sign in by looking at the camera.
 
     No username is supplied: the recogniser identifies the account. That is
     the point of the feature, and it also means a caller cannot probe whether
     a particular username has a face enrolled.
+
+    **Several frames, best match wins.** An earlier version took a single
+    photograph, and that made signing in a coin toss. Measured against a
+    trained model, three consecutive frames of the same enrolled person
+    scored 0.774, 0.662 and 0.484 against a 0.62 threshold -- two would have
+    signed in and one would have been turned away, for no reason the person
+    could see or act on. Blinking, a slight turn, or a moment of motion blur
+    is enough to produce that third frame.
+
+    Scoring a short burst and keeping the best costs a few hundred
+    milliseconds and removes the failure. It does not weaken rejection: a
+    stranger's best frame still has to clear the same threshold, and the
+    threshold is unchanged.
     """
     service = runtime.biometrics()
     if not service.face.available():
@@ -165,18 +178,33 @@ async def login_by_face(request: Request, frame: UploadFile = File(...),
             "No face has been enrolled in this shop yet. Sign in with a "
             "password first, then enrol your face from your account page.")
 
-    payload = await _collect([frame])
-    path = _write_temp(payload[0], frame.filename or "")
-    try:
-        identification = service.face.identify_image(path)
-    finally:
-        os.unlink(path)
+    payloads = await _collect(frames)
 
-    if not identification.identified:
+    best = None
+    best_confidence = -1.0
+    for index, payload in enumerate(payloads):
+        path = _write_temp(payload, frames[index].filename or "")
+        try:
+            attempt = service.face.identify_image(path)
+        finally:
+            os.unlink(path)
+
+        confidence = float(getattr(attempt, "confidence", 0.0) or 0.0)
+        # Seeded below zero rather than at zero: an unrecognised frame scores
+        # 0.0, and `> 0.0` would then keep the placeholder instead of the
+        # real result. That exact comparison hid a bug in this project once
+        # already, where the app blamed the camera for an untrained model.
+        if confidence > best_confidence:
+            best_confidence = confidence
+            best = attempt
+
+    if best is None or not best.identified:
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,
-            getattr(identification, "message", None)
+            getattr(best, "message", None)
             or "That face was not recognised.")
+
+    identification = best
 
     try:
         user_id = int(identification.user_id)

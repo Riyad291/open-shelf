@@ -638,8 +638,22 @@ async function captureShot() {
     const blob = await grabFrame();
 
     if (state.camera.mode === "identify") {
+      /* A burst, not a snapshot. A single frame makes signing in a coin
+         toss: a blink, a slight turn or a moment of motion blur is enough
+         for one frame to miss while the next one matches comfortably. The
+         server scores all of them and keeps the best. */
+      const message = $("#camera-msg");
+      message.className = "msg";
+      const burst = [blob];
+      for (let i = 1; i < 5; i++) {
+        message.textContent = `Hold still… ${i + 1} of 5`;
+        await new Promise((r) => setTimeout(r, 260));
+        burst.push(await grabFrame());
+      }
+      message.textContent = "Checking…";
+
       const form = new FormData();
-      form.append("frame", blob, "frame.png");
+      burst.forEach((b, i) => form.append("frames", b, `f${i}.png`));
       const data = await api("/biometrics/face/login", {
         method: "POST", body: form, raw: true, retry: false,
       });
