@@ -5,22 +5,20 @@ __pycache__/
 *.corrupt
 .venv/
 venv/
+.pytest_cache/
 .DS_Store
+*.db
 
 # ---------------------------------------------------------------------------
-# The shop's records are generated, not authored. `python tools/seed.py`
-# rebuilds all of it in a second, so committing it would only mean every
-# clone carries somebody else's shop and every demo run shows up as a diff.
+# Generated shop assets. `python tools/seed_db.py` rebuilds all of it, so
+# committing it would mean every clone carries somebody else's shop and every
+# demo run shows up as a diff.
 # ---------------------------------------------------------------------------
-data/users.json
-data/books.json
-data/reviews.json
-data/transactions.json
-data/events.json
 data/covers/
 data/figures/
 data/books/
 data/image_index.json
+data/scans/
 data/demo_shelf.png
 data/shelf_annotated.png
 
@@ -31,6 +29,13 @@ data/biometrics/
 # Detector weights, fetched by `python tools/fetch_models.py`.
 data/models/
 
-# NOT ignored, and deliberately so: data/kb/ is the corpus the assistant
-# retrieves from. It is written by hand, seed.py does not regenerate it, and
-# without it RAG has nothing to answer from on a fresh clone.
+# Superseded by the database, but left behind by the v1 tag on an old clone.
+data/users.json
+data/books.json
+data/reviews.json
+data/transactions.json
+data/events.json
+
+# NOT ignored, deliberately: data/kb/ is the corpus the assistant retrieves
+# from. It is written by hand, no script regenerates it, and without it RAG
+# has nothing to answer from on a fresh clone.

@@ -1,51 +1,52 @@
 # Smart Bookstore -- Python dependencies
 #
-# The app runs with NONE of these installed: every optional feature degrades to
-# a clear message rather than a crash. Install them in this order of value.
-#
 #     pip install -r requirements.txt
 #
-# Tkinter is NOT here because it is not a pip package. If `python run.py` says
-# Tkinter is missing:
-#     Ubuntu/Debian : sudo apt install python3-tk
-#     Fedora        : sudo dnf install python3-tkinter
-#     macOS (brew)  : brew install python-tk
-#     Windows       : reinstall Python with the "tcl/tk and IDLE" option ticked
+# Everything below is needed. The optional-extras era ended when the project
+# moved from text files to a database and from a desktop window to a browser:
+# there is no longer a meaningful subset that runs.
 
-# --- Needed for picture search, Shelf Scan and cover thumbnails -------------
-numpy>=1.24
-Pillow>=10.0
-
-# --- Needed for face login (detection) and camera capture ------------------
-# OpenCV 5 dropped the contrib `face` module, so the project trains its own
-# eigenface classifier in numpy and uses OpenCV only for detection and camera
-# access. Either 4.x or 5.x works.
-opencv-python>=4.8
-
-# --- Needed for the web client and the REST API ----------------------------
-# `python run.py` (the Tkinter desktop client) does not use these. They are
-# needed by `python -m bookstore.api`, which serves the same business rules
-# over HTTP and hosts the browser client in web/.
+# --- The service -----------------------------------------------------------
 fastapi>=0.110
 uvicorn[standard]>=0.27
-httpx>=0.27            # also what tests/test_api.py drives the API with
+pydantic>=2.6
 
-# --- Optional: microphone recording for voice enrolment --------------------
-# Without it, voice enrolment and login still work from saved .wav files.
-sounddevice>=0.4
+# --- The database ----------------------------------------------------------
+# SQLAlchemy targets the session, not a dialect, so the same code runs on
+# PostgreSQL (the default), MySQL and SQLite. DATABASE_URL picks one.
+SQLAlchemy>=2.0
+alembic>=1.13
+psycopg[binary]>=3.1        # the PostgreSQL driver
+# PyMySQL>=1.1              # uncomment for MySQL
 
-# --- Optional: YOLO face detection and YOLO shelf segmentation -------------
-# The spec asks for a "yolo-based procedure". With ultralytics installed and
-# the weights fetched (python tools/fetch_models.py --yolo), detection uses
-# YOLO. Without it, the app falls back to OpenCV's YuNet DNN detector, then to
-# a Haar cascade, then to a centre crop -- in that order, and it tells you
-# which one it picked.
+# --- Authentication --------------------------------------------------------
+python-jose[cryptography]>=3.3   # signs and verifies the access tokens
+
+# --- Images, recognition and search ----------------------------------------
+# numpy does the real work: the eigenface classifier, the MFCC speaker
+# recogniser and the image descriptor are all implemented here rather than
+# imported. OpenCV is used only for camera access and face *detection*,
+# because OpenCV 5 removed the contrib `face` module entirely.
+numpy>=1.24
+Pillow>=10.0
+opencv-python>=4.8
+
+# --- Tests -----------------------------------------------------------------
+# pytest is not needed to run the shop, only to check it.
+pytest>=8.0
+httpx>=0.27                 # what TestClient drives the API with
+
+# --- Optional: YOLO face detection and shelf segmentation -------------------
+# The specification asks for a "yolo-based procedure". With ultralytics
+# installed and the weights fetched (python tools/fetch_models.py --yolo),
+# detection uses YOLO. Without it, detection falls back to OpenCV's YuNet DNN,
+# then a Haar cascade, then a centre crop -- and says which one it chose.
 # ultralytics>=8.0
 
 # --- Not a pip install -----------------------------------------------------
-# The chat box's LLM fallback talks to Ollama over plain HTTP using only the
-# standard library. Install Ollama from https://ollama.com, then:
+# The assistant's general-knowledge fallback talks to Ollama over plain HTTP
+# using only the standard library. Install Ollama from https://ollama.com:
 #     ollama serve
 #     ollama pull llama3.2
-# Without it, RAG answers from local files still work; only the
-# general-knowledge fallback is unavailable, and the app says so.
+# Without it, questions about the shop are still answered from local files;
+# only general questions are unavailable, and the app says so.

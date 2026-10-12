@@ -1,6 +1,14 @@
-# The image seeds its own shop, so the host's data never goes in.
+# The image migrates and seeds its own shop, so the host's records, covers,
+# face samples and model weights never go in.
 data/
-models/
+*.db
+
+# ...except the knowledge base. seed_db.py does not generate it -- it is
+# written by hand, and it is what the assistant retrieves from. Without it the
+# container starts with RAG having nothing to read, and every shop question
+# falls through to the language model.
+!data/kb/
+!data/kb/**
 
 __pycache__/
 *.pyc
@@ -12,11 +20,10 @@ __pycache__/
 .github/
 .venv/
 venv/
+.pytest_cache/
 
 # Documents and screenshots are for people reading the repository, not for
 # the running service.
 docs/
 *.docx
 *.pdf
-*.png
-!web/**/*.png

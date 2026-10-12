@@ -1,0 +1,60 @@
+# The whole shop, with its database.
+#
+#     docker compose up --build
+#     open http://localhost:8000/app/
+#
+# The first start creates the schema and seeds a demo shop, so the catalogue
+# is populated and every state the specification describes is visible without
+# typing anything.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bookstore
+      POSTGRES_PASSWORD: bookstore
+      POSTGRES_DB: bookstore
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    # The app waits for this rather than racing it. Without the healthcheck
+    # the API starts first, fails to connect, and the whole thing looks
+    # broken on a clean machine -- which is the only machine a reviewer has.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bookstore -d bookstore"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    ports:
+      # Exposed so you can point psql at it while the stack runs. Remove this
+      # line if you would rather the database were not reachable from outside.
+      - "5432:5432"
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://bookstore:bookstore@db:5432/bookstore
+      # A fixed key so sessions survive a restart. Generate your own for
+      # anything beyond a local demo:  python -c "import secrets;
+      # print(secrets.token_urlsafe(48))"
+      JWT_SECRET: local-development-only-change-me
+      OLLAMA_URL: http://host.docker.internal:11434
+    ports:
+      - "8000:8000"
+    volumes:
+      # Covers, the knowledge base and enrolled face samples are files. Kept
+      # outside the image so they survive a rebuild.
+      - app-data:/app/data
+    # Migrate, then seed if the shop is empty, then serve. The migration is
+    # the schema's source of truth -- not create_all() -- so the container and
+    # a developer's machine get the schema the same way.
+    command: >
+      sh -c "alembic upgrade head &&
+             python tools/seed_db.py &&
+             uvicorn bookstore.api.app:app --host 0.0.0.0 --port 8000"
+
+volumes:
+  db-data:
+  app-data:
