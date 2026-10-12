@@ -41,6 +41,12 @@ services:
       # print(secrets.token_urlsafe(48))"
       JWT_SECRET: local-development-only-change-me
       OLLAMA_URL: http://host.docker.internal:11434
+    # Docker Desktop resolves host.docker.internal on its own; plain Docker on
+    # Linux does not, so Ollama on the host would be unreachable there. The
+    # assistant degrades gracefully when the model is offline, but it should
+    # degrade because Ollama is not running -- not because of a hostname.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8000:8000"
     volumes:
