@@ -207,16 +207,32 @@ branch in the domain code.
 
 ## Action items
 
-1. [ ] Schema design; SQLAlchemy models; initial Alembic migration
-2. [ ] Port the rules engine to a session-per-request, with `FOR UPDATE` on
-       the stock decrement
-3. [ ] Regression test: concurrent checkout of the last copy. It must
+All complete as of 2026-10-12.
+
+1. [x] Schema design; SQLAlchemy models; initial Alembic migration
+       — 15 tables, `alembic/versions/7cf44f5aa99b_initial_schema.py`, verified
+       up → down → up on both PostgreSQL and SQLite
+2. [x] Port the rules engine to a session-per-request, with `FOR UPDATE` on
+       the stock decrement — `services/checkout.py`; locks taken in ascending
+       book id so two customers buying the same pair in opposite orders cannot
+       deadlock
+3. [x] Regression test: concurrent checkout of the last copy. It must
        demonstrate the oversell against an unlocked implementation and must
-       never oversell against the locked one
-4. [ ] Cart, order, order item and payment entities and endpoints
-5. [ ] Full CRUD with correct status codes
-6. [ ] JWT access and refresh tokens, replacing the in-memory dict
-7. [ ] Delete `bookstore/ui`, `run.py` and the GUI tests
-8. [ ] `docker-compose` with PostgreSQL; CI against a real service container
-9. [ ] Rewrite `verify_spec.py` items 11 and 13 to state what is true now
-10. [ ] Rewrite README and ARCHITECTURE for the new shape
+       never oversell against the locked one — `tests/test_concurrency.py`,
+       including a canary that reimplements checkout without the lock and
+       asserts that it oversells
+4. [x] Cart, order, order item and payment entities and endpoints
+5. [x] Full CRUD with correct status codes — 43 paths, 52 operations
+6. [x] JWT access and refresh tokens, replacing the in-memory dict
+       — `services/auth.py`, with rotation and reuse detection
+7. [x] Delete `bookstore/ui`, `run.py` and the GUI tests
+8. [x] `docker-compose` with PostgreSQL; CI against a real service container
+       — five jobs, including an `alembic check` drift guard. The image has
+       **not** been built locally: Docker Hub is unreachable from the
+       development environment, so CI is the first place it builds
+9. [x] State what is true now about notes 11 and 13 — `verify_spec.py` was
+       replaced rather than patched. It asserted "no server component
+       anywhere", which the API made false; `tools/verify_features.py` drives
+       the real HTTP API and reports 10 of 10
+10. [x] Rewrite README and ARCHITECTURE for the new shape; add
+        `docs/FEATURE_PARITY.md` mapping every requirement to where it lives
