@@ -1,0 +1,65 @@
+# Returns and refunds
+
+Unopened new books may be returned within 30 days of purchase with proof of
+purchase for a full refund to the account balance. Second-hand and clearance
+titles are sold as seen and cannot be returned unless they are misdescribed.
+
+A refund is credited to the customer's store account balance, not to a card. A
+customer who wants cash back should ask the super-user at the counter.
+
+Damaged or misprinted copies are replaced free of charge at any time, with no
+time limit, even without a receipt, provided the title is still in print.
+
+# Account balance
+
+Every registered and VIP customer keeps a prepaid balance on their account.
+Purchases are taken from that balance. Money can be added at the counter or by
+asking the super-user to credit the account.
+
+If a customer tries to buy a book that costs more than their balance, the
+purchase is refused and a one-dollar administration fine is charged to the
+account. This fine exists to discourage repeated failed checkouts, which cost
+staff time.
+
+Any account whose balance falls below zero is suspended immediately. A suspended
+account cannot log in or buy anything. To reopen it, the customer must ask the
+super-user to deposit enough money to bring the balance back above zero.
+
+# VIP membership
+
+A registered customer who makes more than three purchases, or who spends more
+than two hundred dollars in total, is promoted to VIP automatically. VIP
+customers receive ten per cent off every purchase from that point onward and get
+access to the shop's to-order and no-order lists.
+
+VIP status is not time-limited and does not need renewal. It can, however, be
+lost: a VIP customer who collects more than two moderation warnings is demoted
+back to registered customer.
+
+# Reviews and community guidelines
+
+Any logged-in customer may rate a book from one to five stars and leave a
+comment. Reviews from customers who actually bought the book carry double weight
+in the displayed average, because a verified reader's opinion is worth more.
+
+We keep a list of taboo words. Any such word in a comment is replaced with
+asterisks. A comment containing more than three taboo words is blocked entirely
+and its author receives a warning. A registered customer who collects more than
+two warnings has their account suspended; a VIP customer is demoted instead.
+
+Warnings are cleared when the super-user reinstates an account.
+
+# Ordering decisions
+
+A title that collects more than three ratings with a weighted average below two
+stars goes on the no-order list, and we stop reordering it. A title with more
+than three ratings and a weighted average above four stars goes on the to-order
+list and we keep it permanently in stock.
+
+# Privacy
+
+We store a customer's username, account balance, purchase history, browsing
+history, and any face or voice samples they enrol for login. Biometric samples
+never leave the shop's own computer and are not shared with anyone. A customer
+may ask the super-user to delete their samples or their whole account at any
+time.
