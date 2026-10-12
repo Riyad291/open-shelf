@@ -42,6 +42,16 @@ submission make it a weak portfolio piece:
    |---|---|
    | 12 threads calling `rules.purchase()` directly, `sys.setswitchinterval(1e-6)` | **Oversold in 15 of 30 trials**; up to 4 buyers charged for 1 copy |
    | 16 truly concurrent HTTP requests against a live uvicorn server | **Not reproduced** — 1 succeeded, as intended |
+   | 16 concurrent PostgreSQL sessions, no row lock *(the replacement design, deliberately unlocked)* | **9 of 16 succeeded** against stock of 1 |
+   | 16 concurrent PostgreSQL sessions, `SELECT ... FOR UPDATE` | **1 succeeded.** Correct |
+
+   A note on what the schema does *not* do. `books.stock` carries a
+   `CHECK (stock >= 0)`, and it is tempting to treat that as the oversell
+   guard. It is not. In a lost update every session reads `stock = 1` and
+   writes `stock = 0`; no row goes negative, the constraint never fires, and
+   nine customers are charged for one copy — measured above, with zero
+   database refusals. The constraint catches a single transaction decrementing
+   past zero. Only the row lock catches the race.
 
    The race is real in the code and demonstrable deterministically under
    forced thread preemption. It was *not* reproducible over HTTP: the window
