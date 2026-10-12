@@ -199,10 +199,24 @@ def rotate_refresh_token(session: Session, raw_token: str,
         user = session.get(m.User, row.user_id)
         if user is not None:
             revoke_all_for(session, user, "refresh token reused")
+
+            # Committed here, deliberately, before raising.
+            #
+            # A service committing its own work is usually a smell -- the
+            # request owns the transaction. This is the exception, and the
+            # reason is the thing being defended against. The caller turns
+            # this AuthError into a 401, and the session dependency rolls the
+            # transaction back when a request raises. That rollback would
+            # undo the revocation: the API would answer "this session was
+            # ended for security" while every token in the family kept
+            # working, which is worse than not detecting reuse at all,
+            # because it looks handled.
+            session.commit()
+
         raise AuthError(
             "This session was ended for security. Please sign in again.")
 
-    if row.expires_at <= m.utcnow():
+    if m.as_utc(row.expires_at) <= m.utcnow():
         raise AuthError("This session has expired. Please sign in again.")
 
     user = session.get(m.User, row.user_id)
@@ -239,9 +253,8 @@ def purge_expired(session: Session) -> int:
     row to exist in order to notice that a stolen token came back.
     """
     cutoff = m.utcnow() - dt.timedelta(days=7)
-    rows = session.execute(
-        select(m.RefreshToken).where(m.RefreshToken.expires_at < cutoff)
-    ).scalars().all()
+    rows = [row for row in session.execute(select(m.RefreshToken)).scalars()
+            if m.as_utc(row.expires_at) < cutoff]
     for row in rows:
         session.delete(row)
     session.flush()

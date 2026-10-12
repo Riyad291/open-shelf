@@ -57,6 +57,25 @@ def utcnow() -> dt.datetime:
     return dt.datetime.now(dt.timezone.utc)
 
 
+def as_utc(moment: Optional[dt.datetime]) -> Optional[dt.datetime]:
+    """Make a datetime read back from the database safe to compare.
+
+    PostgreSQL returns TIMESTAMP WITH TIME ZONE as an aware datetime; SQLite
+    has no timezone type and hands back a naive one. Comparing a naive value
+    with an aware one raises TypeError, so the same expression worked on
+    PostgreSQL and crashed on SQLite -- and refresh, which compares an expiry
+    against now, is on the path every signed-in person takes every fifteen
+    minutes.
+
+    Values are stored in UTC, so a naive one is UTC with the label missing.
+    """
+    if moment is None:
+        return None
+    if moment.tzinfo is None:
+        return moment.replace(tzinfo=dt.timezone.utc)
+    return moment.astimezone(dt.timezone.utc)
+
+
 class TimestampMixin:
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, server_default=func.now(),
@@ -132,7 +151,8 @@ class RefreshToken(Base, TimestampMixin):
 
     @property
     def active(self) -> bool:
-        return self.revoked_at is None and self.expires_at > utcnow()
+        return (self.revoked_at is None
+                and as_utc(self.expires_at) > utcnow())
 
 
 class BiometricSample(Base, TimestampMixin):

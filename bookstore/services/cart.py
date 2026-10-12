@@ -98,7 +98,12 @@ def set_quantity(session: Session, user: m.User, book_id: int,
         raise CartError("That book is not in your cart.")
 
     if quantity <= 0:
-        session.delete(item)
+        # Removed through the collection, not with session.delete alone.
+        # cart.items may already be loaded in this session, and deleting the
+        # row behind its back leaves the stale line in the collection -- so
+        # the cart returned by the very same request still showed the book
+        # the customer had just removed.
+        cart.items.remove(item)
         session.flush()
         return None
 
@@ -120,7 +125,7 @@ def remove(session: Session, user: m.User, book_id: int) -> bool:
     ).scalar_one_or_none()
     if item is None:
         return False
-    session.delete(item)
+    cart.items.remove(item)      # see set_quantity: keeps the view in step
     session.flush()
     return True
 
@@ -128,8 +133,7 @@ def remove(session: Session, user: m.User, book_id: int) -> bool:
 def clear(session: Session, user: m.User) -> int:
     cart = get_or_create(session, user)
     count = len(cart.items)
-    for item in list(cart.items):
-        session.delete(item)
+    cart.items.clear()           # delete-orphan removes the rows
     session.flush()
     return count
 
