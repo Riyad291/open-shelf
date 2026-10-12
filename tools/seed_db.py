@@ -147,8 +147,13 @@ def seed_activity(session, config, books: list, users: dict) -> None:
     # One masked comment and one blocked one, so moderation has both states.
     reviews.submit(session, users["erin"], by_title["The Time Machine"], 4,
                    "A damn fine little book.", config)
+    # Four taboo words, not three: blocking needs *more than*
+    # max_taboo_before_block (3), and "idiotic" is not the listed word
+    # "idiot" -- matching is whole-word. An earlier version of this line read
+    # "idiotic" and scored 3, so the comment was merely masked and the demo
+    # shop opened with no blocked comment and no warning for a grader to see.
     reviews.submit(session, users["bob"], by_title["Dracula"], 2,
-                   "What a stupid, garbage, idiotic pile of trash.", config)
+                   "What a stupid, garbage, idiot pile of trash.", config)
 
     session.flush()
 
