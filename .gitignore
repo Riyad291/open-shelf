@@ -1,0 +1,36 @@
+__pycache__/
+*.pyc
+*.pyo
+*.tmp
+*.corrupt
+.venv/
+venv/
+.DS_Store
+
+# ---------------------------------------------------------------------------
+# The shop's records are generated, not authored. `python tools/seed.py`
+# rebuilds all of it in a second, so committing it would only mean every
+# clone carries somebody else's shop and every demo run shows up as a diff.
+# ---------------------------------------------------------------------------
+data/users.json
+data/books.json
+data/reviews.json
+data/transactions.json
+data/events.json
+data/covers/
+data/figures/
+data/books/
+data/image_index.json
+data/demo_shelf.png
+data/shelf_annotated.png
+
+# Face and voice samples are biometric data about real people. These never
+# belong in a repository, not even a private one.
+data/biometrics/
+
+# Detector weights, fetched by `python tools/fetch_models.py`.
+data/models/
+
+# NOT ignored, and deliberately so: data/kb/ is the corpus the assistant
+# retrieves from. It is written by hand, seed.py does not regenerate it, and
+# without it RAG has nothing to answer from on a fresh clone.
