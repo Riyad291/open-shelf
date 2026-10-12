@@ -51,6 +51,18 @@ For PostgreSQL instead, set
 MySQL works too — it is a connection string and a driver.
 </details>
 
+### One optional step, worth taking
+
+```bash
+python tools/fetch_models.py        # ~1 MB: YuNet face detector + Haar cascade
+python tools/fetch_models.py --all  # also YOLOv8n (~6 MB) for Shelf Scan
+```
+
+Nothing requires this. Without it the face detector falls back to a centre
+crop of the frame, which works when you sit squarely in front of the camera
+and degrades when you do not — so if face login feels unreliable, this is the
+first thing to try. `/api/health` reports which detector is in use.
+
 ### Demo accounts
 
 | Username | Password | Role | Why it's interesting |
@@ -235,6 +247,9 @@ Stated here rather than left to be discovered.
 - **No accuracy figure is claimed for face recognition.** It is verified end to
   end with synthetic faces and a simulated camera. That proves the pipeline,
   not a number for real faces.
+- **The detector models are not bundled.** A fresh clone and the Docker image
+  both start with the centre-crop fallback until `tools/fetch_models.py` has
+  run. Face login still works; it is just more sensitive to how you sit.
 - **Voice login has no web interface.** The MFCC speaker recogniser is still in
   the codebase; only face login is exposed over HTTP.
 - **`CORS_ORIGINS` defaults to `*`.** Fine for a local demo with bearer tokens
