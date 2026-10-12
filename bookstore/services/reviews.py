@@ -1,0 +1,253 @@
+"""Ratings, comments, moderation and the two order lists.
+
+Specification item 7 in full: any user may comment; a comment from somebody
+who bought the book counts double; taboo words are masked; more than three of
+them blocks the comment and earns a warning; more than two warnings suspends a
+registered customer or demotes a VIP.
+
+The taboo screening itself is unchanged -- ``moderation.screen_comment`` is
+pure text in, text out, so it did not care that the storage underneath moved.
+"""
+
+from __future__ import annotations
+
+from decimal import Decimal
+from typing import List, Optional
+
+from sqlalchemy import case, func, select
+from sqlalchemy.orm import Session
+
+from ..db import models as m
+from ..moderation import screen_comment
+from . import accounts
+
+
+class ReviewError(Exception):
+    pass
+
+
+class ReviewOutcome:
+    def __init__(self, review: Optional[m.Review], message: str, *,
+                 ok: bool = True, blocked: bool = False, taboo_hits: int = 0,
+                 warning_issued: bool = False, warnings_total: int = 0,
+                 suspended: bool = False, demoted: bool = False):
+        self.review = review
+        self.message = message
+        self.ok = ok
+        self.blocked = blocked
+        self.taboo_hits = taboo_hits
+        self.warning_issued = warning_issued
+        self.warnings_total = warnings_total
+        self.suspended = suspended
+        self.demoted = demoted
+
+
+def has_purchased(session: Session, user: m.User, book_id: int) -> bool:
+    """Did this customer actually buy this book? One aggregate, not a walk."""
+    return bool(session.execute(
+        select(func.count(m.OrderItem.id))
+        .select_from(m.OrderItem)
+        .join(m.Order, m.Order.id == m.OrderItem.order_id)
+        .where(m.Order.user_id == user.id, m.Order.status == "paid",
+               m.OrderItem.book_id == book_id)
+    ).scalar_one())
+
+
+def already_reviewed(session: Session, user: m.User, book_id: int) -> bool:
+    return bool(session.execute(
+        select(func.count(m.Review.id)).where(
+            m.Review.user_id == user.id, m.Review.book_id == book_id)
+    ).scalar_one())
+
+
+def submit(session: Session, user: Optional[m.User], book: m.Book,
+           stars: int, comment: str, config) -> ReviewOutcome:
+    try:
+        stars = int(stars)
+    except (TypeError, ValueError):
+        raise ReviewError("A rating must be a whole number of stars.")
+    if not 1 <= stars <= 5:
+        raise ReviewError("A rating must be between 1 and 5 stars.")
+
+    screened = screen_comment(comment, config.taboo_words,
+                              config.max_taboo_before_block)
+
+    # -- a visitor, with no account to carry a warning --------------------
+    if user is None:
+        if not config.flag("visitors_may_review"):
+            raise ReviewError(
+                "Please sign in to post a rating -- reviews are tied to an "
+                "account so that moderation warnings can be applied.")
+
+        if screened.blocked:
+            # Nothing to warn, so the comment is simply refused and logged.
+            session.add(m.Event(
+                kind="blocked_visitor_comment", user_id=None,
+                detail="%d taboo words on book %d" % (screened.hits, book.id)))
+            session.flush()
+            return ReviewOutcome(
+                None,
+                "That comment was blocked: it contains %d taboo words."
+                % screened.hits,
+                ok=False, blocked=True, taboo_hits=screened.hits)
+
+        review = m.Review(
+            book_id=book.id, user_id=None, role_at_time=m.VISITOR,
+            stars=stars, raw_comment=screened.original,
+            comment=screened.masked, taboo_hits=screened.hits,
+            blocked=False, verified_purchase=False,
+            weight=Decimal(str(config.normal_weight)),
+        )
+        session.add(review)
+        session.flush()
+        message = "Rating posted."
+        if screened.hits:
+            message += " %d taboo word(s) were masked." % screened.hits
+        return ReviewOutcome(review, message, taboo_hits=screened.hits)
+
+    # -- a signed-in customer ---------------------------------------------
+    allowed, why = accounts.can_sign_in(user)
+    if not allowed:
+        raise ReviewError(why)
+
+    if already_reviewed(session, user, book.id):
+        raise ReviewError("You have already reviewed this book.")
+
+    purchased = has_purchased(session, user, book.id)
+    weight = Decimal(str(config.purchaser_weight if purchased
+                         else config.normal_weight))
+
+    review = m.Review(
+        book_id=book.id, user_id=user.id, role_at_time=user.role,
+        stars=stars, raw_comment=screened.original, comment=screened.masked,
+        taboo_hits=screened.hits, blocked=screened.blocked,
+        verified_purchase=purchased, weight=weight,
+    )
+    session.add(review)
+    session.flush()
+
+    if screened.blocked:
+        suspended, demoted = accounts.apply_warning(
+            session, user,
+            "blocked comment on '%s' (%d taboo words)"
+            % (book.title, screened.hits), config)
+
+        message = ("Your comment was blocked for containing %d taboo words. "
+                   "You have received a warning (%d of %d allowed)."
+                   % (screened.hits, user.warnings, config.warning_limit))
+        if suspended:
+            message += " Your account has been suspended."
+        elif demoted:
+            message += (" Your VIP status has been revoked; you are now a "
+                        "registered customer.")
+
+        return ReviewOutcome(
+            review, message, ok=False, blocked=True,
+            taboo_hits=screened.hits, warning_issued=True,
+            warnings_total=user.warnings, suspended=suspended,
+            demoted=demoted)
+
+    message = "Review posted."
+    if screened.hits:
+        message += " %d taboo word(s) were masked." % screened.hits
+    if purchased:
+        message += " Your rating counts double because you bought this book."
+    return ReviewOutcome(review, message, taboo_hits=screened.hits)
+
+
+# ------------------------------------------------------------- aggregates
+
+
+def _rating_columns():
+    """The weighted and plain averages, as SQL.
+
+    Both are needed: the specification classifies by the weighted average but
+    counts ratings unweighted, and mixing the two is the kind of error that
+    puts the wrong book on the no-order list.
+    """
+    return (
+        func.count(m.Review.id).label("rating_count"),
+        func.avg(m.Review.stars).label("plain_average"),
+        (func.sum(m.Review.stars * m.Review.weight)
+         / func.nullif(func.sum(m.Review.weight), 0)).label("weighted_average"),
+    )
+
+
+def rating_summary(session: Session, book_id: int) -> dict:
+    count, plain, weighted = _rating_columns()
+    row = session.execute(
+        select(count, plain, weighted)
+        .where(m.Review.book_id == book_id, m.Review.blocked.is_(False))
+    ).one()
+
+    return {
+        "count": int(row.rating_count or 0),
+        "plain_average": round(float(row.plain_average), 3)
+        if row.plain_average is not None else None,
+        "weighted_average": round(float(row.weighted_average), 3)
+        if row.weighted_average is not None else None,
+    }
+
+
+def list_status(summary: dict, config) -> str:
+    """Specification item 7: more than three ratings puts a book on a list."""
+    if summary["count"] <= config.min_ratings_for_list:
+        return "normal"
+
+    average = (summary["weighted_average"]
+               if config.flag("order_lists_use_weighted_average")
+               else summary["plain_average"])
+    if average is None:
+        return "normal"
+    if average < config.no_order_max_avg:
+        return "no-order"
+    if average > config.to_order_min_avg:
+        return "to-order"
+    return "normal"
+
+
+def order_lists(session: Session, config) -> dict:
+    """Both lists, in two queries rather than one per book.
+
+    The naive version asks for every book's rating summary in a loop. With a
+    thousand titles that is a thousand round trips to build one admin screen.
+    """
+    count, plain, weighted = _rating_columns()
+    rows = session.execute(
+        select(m.Book.id, m.Book.title, m.Book.author, m.Book.category,
+               count, plain, weighted)
+        .join(m.Review, (m.Review.book_id == m.Book.id)
+              & (m.Review.blocked.is_(False)))
+        .group_by(m.Book.id, m.Book.title, m.Book.author, m.Book.category)
+        .having(func.count(m.Review.id) > config.min_ratings_for_list)
+    ).all()
+
+    no_order, to_order = [], []
+    for row in rows:
+        summary = {
+            "count": int(row.rating_count),
+            "plain_average": round(float(row.plain_average), 3),
+            "weighted_average": round(float(row.weighted_average), 3),
+        }
+        entry = {
+            "book_id": row.id, "title": row.title, "author": row.author,
+            "category": row.category, **summary,
+        }
+        status = list_status(summary, config)
+        if status == "no-order":
+            no_order.append(entry)
+        elif status == "to-order":
+            to_order.append(entry)
+
+    no_order.sort(key=lambda e: e["weighted_average"])
+    to_order.sort(key=lambda e: -e["weighted_average"])
+    return {"no_order": no_order, "to_order": to_order}
+
+
+def for_book(session: Session, book_id: int,
+             include_blocked: bool = False) -> List[m.Review]:
+    statement = select(m.Review).where(m.Review.book_id == book_id)
+    if not include_blocked:
+        statement = statement.where(m.Review.blocked.is_(False))
+    return list(session.execute(
+        statement.order_by(m.Review.created_at.desc())).scalars())
