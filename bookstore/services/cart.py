@@ -73,8 +73,10 @@ def add(session: Session, user: m.User, book_id: int,
                book.title, "is" if book.stock == 1 else "are"))
 
     if item is None:
-        item = m.CartItem(cart_id=cart.id, book_id=book_id, quantity=quantity)
-        session.add(item)
+        # Appended to the relationship, not just session.add()ed, so that
+        # cart.items reflects the new line within this same session.
+        item = m.CartItem(book_id=book_id, quantity=quantity)
+        cart.items.append(item)
     else:
         item.quantity = wanted
 

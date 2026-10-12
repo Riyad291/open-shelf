@@ -34,7 +34,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import List, Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from ..db import models as m
@@ -90,7 +90,15 @@ def place_order(session: Session, user: m.User, config) -> CheckoutResult:
         select(m.Cart).where(m.Cart.user_id == user.id)
     ).scalar_one_or_none()
 
-    items = list(cart.items) if cart else []
+    # The lines are queried rather than read from ``cart.items``. That
+    # collection is only as fresh as the last time it was loaded: a line added
+    # with session.add() in the same session does not appear in it, and a
+    # previously cleared collection stays empty. Reading the rows is correct
+    # whatever happened earlier in the request.
+    items = list(session.execute(
+        select(m.CartItem).where(m.CartItem.cart_id == cart.id)
+    ).scalars()) if cart else []
+
     if not items:
         raise CheckoutError("Your cart is empty.")
 
@@ -185,8 +193,13 @@ def place_order(session: Session, user: m.User, config) -> CheckoutResult:
         detail="order %d, $%.2f, %d line(s)" % (order.id, subtotal, len(lines)),
     ))
 
-    for item in items:
-        session.delete(item)
+    # Empty the basket with one statement, then invalidate the loaded
+    # collection so anything reading cart.items afterwards fetches again.
+    # Deleting each row with session.delete() while the delete-orphan cascade
+    # also fires issues the DELETE twice, and SQLAlchemy warns that the second
+    # matched nothing ("expected to delete 2 row(s); 0 were matched").
+    session.execute(delete(m.CartItem).where(m.CartItem.cart_id == cart.id))
+    session.expire(cart, ["items"])
 
     session.flush()
     promoted = _maybe_promote(session, user, config)
