@@ -57,20 +57,26 @@ def add(session: Session, user: m.User, book_id: int,
             m.CartItem.cart_id == cart.id, m.CartItem.book_id == book_id)
     ).scalar_one_or_none()
 
-    if item is None:
-        item = m.CartItem(cart_id=cart.id, book_id=book_id, quantity=quantity)
-        session.add(item)
-    else:
-        item.quantity += quantity
-
-    # Stock is not reserved here, but offering to put twenty copies of a book
-    # with three in stock into a basket is a worse experience than saying so
-    # now. Checkout re-checks under a lock; this is only courtesy.
-    if item.quantity > book.stock:
+    # Validate BEFORE mutating. The previous version raised after adding the
+    # quantity, which is only safe while every caller rolls the transaction
+    # back. A caller that catches CartError and commits anyway -- a perfectly
+    # reasonable thing for a handler to do -- would have persisted a quantity
+    # the shop cannot fill.
+    #
+    # Stock is not reserved by adding to a cart, exactly as in a shop.
+    # Checkout re-checks under a row lock; this is courtesy, not the guard.
+    wanted = (item.quantity if item else 0) + quantity
+    if wanted > book.stock:
         raise CartError(
             "Only %d cop%s of '%s' %s in stock."
             % (book.stock, "y" if book.stock == 1 else "ies",
                book.title, "is" if book.stock == 1 else "are"))
+
+    if item is None:
+        item = m.CartItem(cart_id=cart.id, book_id=book_id, quantity=quantity)
+        session.add(item)
+    else:
+        item.quantity = wanted
 
     session.flush()
     return item

@@ -122,5 +122,14 @@ def supports_row_locks(session: Session) -> bool:
     PostgreSQL and MySQL: yes. SQLite: no -- it serialises writers with a
     database-wide lock instead, which is correct but coarser. Code that cares
     about the difference asks, rather than assuming.
+
+    ``get_bind()`` rather than ``.bind``: the latter is None on a session
+    bound per-mapper or via a scoped factory, and this would then raise
+    AttributeError inside checkout -- the single worst place for a surprise.
     """
-    return session.bind.dialect.name not in ("sqlite",)
+    try:
+        return session.get_bind().dialect.name not in ("sqlite",)
+    except Exception:
+        # Unknown binding: assume no row locks and let the database's own
+        # concurrency control stand. Being wrong this way is slow, not unsafe.
+        return False

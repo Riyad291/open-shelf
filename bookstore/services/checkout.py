@@ -34,7 +34,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..db import models as m
@@ -133,11 +133,16 @@ def place_order(session: Session, user: m.User, config) -> CheckoutResult:
 
     # -- can they pay? ----------------------------------------------------
     if subtotal > user.balance:
+        balance_before = pricing.money(user.balance)
         fine = _apply_fine(session, user, config, subtotal)
+        # Formatted from Decimal with str(), not %.2f: the latter converts to
+        # float first, which is the one thing this schema went to Numeric to
+        # avoid. It would be invisible here and wrong somewhere else later.
         raise CheckoutError(
-            "Purchase refused: the cart costs $%.2f but your balance is "
-            "$%.2f. A $%.2f fine was applied; balance is now $%.2f."
-            % (subtotal, user.balance + fine, fine, user.balance),
+            "Purchase refused: the cart costs $" + str(subtotal)
+            + " but your balance is $" + str(balance_before)
+            + ". A $" + str(fine) + " fine was applied; balance is now $"
+            + str(pricing.money(user.balance)) + ".",
             fine_applied=fine,
             suspended=user.suspended,
             balance=pricing.money(user.balance),
@@ -227,20 +232,27 @@ def _maybe_promote(session: Session, user: m.User, config) -> bool:
     if user.role != m.REGISTERED or user.vip_ineligible:
         return False
 
-    paid = session.execute(
-        select(m.Order).where(m.Order.user_id == user.id,
-                              m.Order.status == "paid")
-    ).scalars().all()
+    # Two aggregates, not a walk over every order and every line. The earlier
+    # version loaded the whole purchase history on each checkout, which gets
+    # slower for exactly the customers who buy the most.
+    purchases = session.execute(
+        select(func.coalesce(func.sum(m.OrderItem.quantity), 0))
+        .select_from(m.OrderItem)
+        .join(m.Order, m.Order.id == m.OrderItem.order_id)
+        .where(m.Order.user_id == user.id, m.Order.status == "paid")
+    ).scalar_one()
 
-    purchases = sum(item.quantity for order in paid for item in order.items)
-    spent = sum((order.total for order in paid), Decimal("0.00"))
+    spent = session.execute(
+        select(func.coalesce(func.sum(m.Order.total), 0))
+        .where(m.Order.user_id == user.id, m.Order.status == "paid")
+    ).scalar_one()
 
     if (purchases > config.vip_purchase_threshold
             or spent > Decimal(str(config.vip_spend_threshold))):
         user.role = m.VIP
         session.add(m.Event(
             kind="promoted", user_id=user.id,
-            detail="RC -> VC (%d purchases, $%.2f spent)" % (purchases, spent),
+            detail="RC -> VC (%s purchases, $%s spent)" % (purchases, spent),
         ))
         session.flush()
         return True

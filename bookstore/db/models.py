@@ -34,9 +34,11 @@ from typing import List, Optional
 
 from sqlalchemy import (
     Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, Numeric,
-    String, Text, UniqueConstraint, func,
+    String, Text, UniqueConstraint, func, select,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import (
+    Mapped, column_property, mapped_column, relationship,
+)
 
 from .base import Base
 
@@ -106,23 +108,8 @@ class User(Base, TimestampMixin):
         CheckConstraint("role in ('VS','RC','VC','SU')", name="ck_users_role"),
     )
 
-    # -- derived figures ---------------------------------------------------
-    #
-    # These are computed from the orders table rather than stored. An earlier
-    # version kept purchase_count and total_spent as columns and had to keep
-    # them in step with every write; a counter that can disagree with the
-    # rows it counts is a bug waiting for a demo.
-
-    @property
-    def purchase_count(self) -> int:
-        return sum(item.quantity
-                   for order in self.orders if order.status == "paid"
-                   for item in order.items)
-
-    @property
-    def total_spent(self) -> Decimal:
-        return sum((order.total for order in self.orders
-                    if order.status == "paid"), Decimal("0.00"))
+    # Derived figures are declared below the class, as column_property with
+    # correlated subqueries. See the note after Book.
 
 
 class RefreshToken(Base, TimestampMixin):
@@ -216,11 +203,6 @@ class Book(Base, TimestampMixin):
         CheckConstraint("price >= 0", name="ck_books_price_non_negative"),
         Index("ix_books_category_author", "category", "author"),
     )
-
-    @property
-    def purchase_count(self) -> int:
-        return sum(item.quantity for item in self.order_items
-                   if item.order.status == "paid")
 
 
 class BookFigure(Base):
@@ -508,3 +490,52 @@ class BrowseHistory(Base, TimestampMixin):
     __table_args__ = (
         Index("ix_browse_user_created", "user_id", "created_at"),
     )
+
+
+# ------------------------------------------------- derived figures (no N+1)
+#
+# `purchase_count` and `total_spent` are computed from the orders table, not
+# stored on the account -- a counter that can disagree with the rows it counts
+# is a bug waiting for a demo.
+#
+# The obvious way to write them is a Python property that walks
+# `self.orders`. That was the first implementation and it was wrong: each
+# access lazy-loads, so listing ten accounts cost **41 queries** and listing
+# ten books cost **41** -- on the catalogue, the most requested page in the
+# shop. At a thousand books that is four thousand round trips per page view.
+#
+# Declaring them as `column_property` with a correlated scalar subquery moves
+# the work into the same SELECT that loads the row. Ten accounts and ten books
+# each cost one query. The subqueries are covered by the indexes on
+# `order_items.order_id`, `order_items.book_id` and `orders.user_id`.
+#
+# They are defined here, after every table exists, because each one references
+# tables declared further down the file.
+
+User.purchase_count = column_property(
+    select(func.coalesce(func.sum(OrderItem.quantity), 0))
+    .select_from(OrderItem)
+    .join(Order, Order.id == OrderItem.order_id)
+    .where(Order.user_id == User.id, Order.status == "paid")
+    .correlate_except(OrderItem, Order)
+    .scalar_subquery(),
+    deferred=False,
+)
+
+User.total_spent = column_property(
+    select(func.coalesce(func.sum(Order.total), 0))
+    .where(Order.user_id == User.id, Order.status == "paid")
+    .correlate_except(Order)
+    .scalar_subquery(),
+    deferred=False,
+)
+
+Book.purchase_count = column_property(
+    select(func.coalesce(func.sum(OrderItem.quantity), 0))
+    .select_from(OrderItem)
+    .join(Order, Order.id == OrderItem.order_id)
+    .where(OrderItem.book_id == Book.id, Order.status == "paid")
+    .correlate_except(OrderItem, Order)
+    .scalar_subquery(),
+    deferred=False,
+)
