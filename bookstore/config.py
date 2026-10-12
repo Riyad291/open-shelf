@@ -246,6 +246,31 @@ class Config:
     def recommendation_count(self) -> int:
         return int(self.get("recommendation_count"))
 
+    # The remaining tunables. Exposed as properties like the rest rather than
+    # left to self.get() at the call sites: a typo in a property name fails
+    # loudly at the point of use, while a typo in a string key silently
+    # returns the default and quietly changes behaviour.
+
+    @property
+    def image_search_results(self) -> int:
+        return int(self.get("image_search_results", 8))
+
+    @property
+    def face_enrolment_samples(self) -> int:
+        return int(self.get("face_enrolment_samples", 5))
+
+    @property
+    def shelfscan_match_threshold(self) -> float:
+        return float(self.get("shelfscan_match_threshold", 0.55))
+
+    @property
+    def rag_min_similarity(self) -> float:
+        return float(self.get("rag_min_similarity", 0.15))
+
+    @property
+    def rag_top_k(self) -> int:
+        return int(self.get("rag_top_k", 3))
+
 
 # A single shared instance is convenient for the GUI; tests build their own.
 _shared: Config | None = None

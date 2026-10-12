@@ -13,10 +13,12 @@ from fastapi import (
     APIRouter, Depends, File, HTTPException, Query, UploadFile, status,
 )
 from fastapi.responses import FileResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ...db import models as m
 from ...services import catalog as catalog_service
+from ...services import image_catalogue
 from ...services import recommend as recommend_service
 from ...services import reviews as review_service
 from .. import present, runtime
@@ -148,10 +150,15 @@ async def search_by_image(file: UploadFile = File(...),
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                             "That image is larger than 8 MB.")
 
-    index = runtime.images()
-    if not index.available():
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
-                            index.dependency_message())
+    from ...imagesearch import ImageIndex, available as imaging_available
+    if not imaging_available():
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Picture search needs numpy and Pillow: pip install -r requirements.txt")
+
+    # Built against the SQL catalogue through the adapter, so imagesearch.py
+    # itself did not have to change when the records became relational.
+    index = ImageIndex(image_catalogue.ImageCatalogue(session, runtime.files()))
 
     suffix = os.path.splitext(file.filename or "")[1][:8] or ".png"
     handle, temp_path = tempfile.mkstemp(suffix=suffix)
@@ -172,7 +179,7 @@ async def search_by_image(file: UploadFile = File(...),
             continue
 
     books = {b.id: b for b in session.execute(
-        __import__("sqlalchemy").select(m.Book).where(m.Book.id.in_(book_ids))
+        select(m.Book).where(m.Book.id.in_(book_ids))
     ).scalars()}
     ratings = present.rating_map(session, list(books))
 

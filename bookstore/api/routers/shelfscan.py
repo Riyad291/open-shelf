@@ -129,10 +129,11 @@ async def scan_shelf(photo: UploadFile = File(...),
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                             "That photo is larger than 12 MB.")
 
-    from ...imagesearch import ImageIndex
-    if not ImageIndex.available():
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
-                            ImageIndex.dependency_message())
+    from ...imagesearch import available as imaging_available
+    if not imaging_available():
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Shelf Scan needs numpy and Pillow: pip install -r requirements.txt")
 
     suffix = os.path.splitext(photo.filename or "")[1][:8] or ".png"
     handle, source = tempfile.mkstemp(suffix=suffix)
