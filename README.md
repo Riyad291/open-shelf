@@ -213,7 +213,7 @@ cannot drift apart unnoticed.
 
 | | |
 |---|---|
-| **Language** | Python 3.9 – 3.12 (~16,300 lines), JavaScript (~2,200), CSS, HTML |
+| **Language** | Python 3.9 – 3.12 (16,300 lines), JavaScript (914 in the web client, 1,300 in the SRS generator), CSS (590), HTML (198) |
 | **Desktop UI** | Tkinter / ttk — standard library, no framework |
 | **Web API** | FastAPI + Pydantic + uvicorn — 27 routes, OpenAPI docs |
 | **Web client** | Vanilla JS, no build step, no dependencies |
