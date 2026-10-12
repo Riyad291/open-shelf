@@ -1,91 +1,33 @@
-"""Request and response models for the HTTP API.
+"""The HTTP contract.
 
-These are the API's contract, kept deliberately separate from the internal
-record shapes in ``models.py``. A stored user record carries a password hash,
-a salt and a browsing history; none of that belongs in an HTTP response, and
-pinning the contract here means an internal field added later is not leaked by
-accident.
+These are deliberately separate types from the ORM models. Returning ORM
+objects directly is convenient and is how password hashes end up in JSON:
+the moment a column is added to a table it appears in every response that
+serialises that model. Here, a field reaches the client only because somebody
+wrote it down.
 """
 
 from __future__ import annotations
 
+import datetime as dt
+from decimal import Decimal
 from typing import List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
-# ---------------------------------------------------------------- books
+class Out(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
 
 
-class BookOut(BaseModel):
-    book_id: str
-    title: str
-    author: str
-    category: str
-    year: int
-    price: float = Field(..., description="List price before any discount")
-    your_price: float = Field(..., description="Price for the current session, "
-                                               "with the VIP discount applied")
-    stock: int
-    description: str = ""
-    cover_url: Optional[str] = None
-    rating: Optional[float] = Field(None, description="Weighted average, "
-                                                      "null when unrated")
-    rating_count: int = 0
-    list_status: str = Field(..., description="normal, no-order or to-order")
-
-
-class BookDetail(BookOut):
-    plain_rating: Optional[float] = None
-    verified_buyers: int = 0
-    browse_count: int = 0
-    purchase_count: int = 0
-    figures: List[str] = []
-    reviews: List["ReviewOut"] = []
-
-
-class RecommendationOut(BaseModel):
-    book: BookOut
-    reason: str
-
-
-# ---------------------------------------------------------------- reviews
-
-
-class ReviewIn(BaseModel):
-    stars: int = Field(..., ge=1, le=5)
-    comment: str = ""
-
-
-class ReviewOut(BaseModel):
-    review_id: str
-    author: str
-    stars: int
-    comment: str
-    verified_purchase: bool
-    taboo_hits: int
-    created_at: str
-
-
-class ReviewResponse(BaseModel):
-    ok: bool
-    message: str
-    blocked: bool = False
-    taboo_hits: int = 0
-    warning_issued: bool = False
-    warnings_total: int = 0
-    suspended: bool = False
-    demoted: bool = False
-
-
-# ---------------------------------------------------------------- accounts
+# ------------------------------------------------------------------- auth
 
 
 class RegisterIn(BaseModel):
-    username: str = Field(..., min_length=1, max_length=40)
-    password: str = Field(..., min_length=4)
-    display_name: str = ""
-    opening_deposit: float = Field(25.0, ge=0)
+    username: str = Field(..., min_length=1, max_length=64)
+    password: str = Field(..., min_length=4, max_length=128)
+    display_name: str = Field("", max_length=128)
+    opening_deposit: Decimal = Field(Decimal("0"), ge=0, le=Decimal("100000"))
 
 
 class LoginIn(BaseModel):
@@ -93,67 +35,118 @@ class LoginIn(BaseModel):
     password: str
 
 
-class SessionOut(BaseModel):
+class RefreshIn(BaseModel):
+    refresh_token: str
+
+
+class PasswordChangeIn(BaseModel):
+    current_password: str
+    new_password: str = Field(..., min_length=4, max_length=128)
+
+
+class SessionOut(Out):
     signed_in: bool
-    user_id: Optional[str] = None
+    user_id: Optional[int] = None
     username: Optional[str] = None
     display_name: Optional[str] = None
     role: str
     role_name: str
-    balance: Optional[float] = None
+    balance: Optional[Decimal] = None
     warnings: Optional[int] = None
+    suspended: bool = False
     purchase_count: Optional[int] = None
-    total_spent: Optional[float] = None
+    total_spent: Optional[Decimal] = None
     vip_discount: Optional[float] = None
     face_enrolled: bool = False
 
 
-class PurchaseRecordOut(BaseModel):
-    """One line of a customer's own purchase history."""
-    book_id: str
+class TokenOut(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_at: dt.datetime
+    session: SessionOut
+
+
+# -------------------------------------------------------------- catalogue
+
+
+class FigureOut(Out):
+    index: int
+    url: str
+
+
+class BookOut(Out):
+    id: int
     title: str
-    author: str = ""
-    price_paid: float
-    at: str = ""
+    author: str
+    category: str
+    year: Optional[int] = None
+    price: Decimal
+    your_price: Decimal
+    stock: int
+    description: str = ""
     cover_url: Optional[str] = None
+    browse_count: int = 0
+    purchase_count: int = 0
+    rating: Optional[float] = None
+    rating_count: int = 0
+    list_status: str = "normal"
 
 
-class PurchaseResponse(BaseModel):
-    ok: bool
-    message: str
-    price_paid: float = 0.0
-    fine_applied: float = 0.0
-    new_balance: float = 0.0
-    promoted: bool = False
-    suspended: bool = False
+class BookDetailOut(BookOut):
+    figures: List[FigureOut] = []
+    reviews: List["ReviewOut"] = []
+    plain_rating: Optional[float] = None
 
 
-class DepositIn(BaseModel):
-    amount: float = Field(..., gt=0)
+class BookCreateIn(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+    author: str = Field(..., min_length=1, max_length=255)
+    category: str = Field(..., min_length=1, max_length=64)
+    year: Optional[int] = Field(None, ge=0, le=2200)
+    price: Decimal = Field(..., ge=0, le=Decimal("100000"))
+    stock: int = Field(0, ge=0)
+    description: str = ""
 
 
-# ---------------------------------------------------------------- chat
+class BookUpdateIn(BaseModel):
+    """Every field optional: this is a PATCH, not a replace.
 
-
-class ChatIn(BaseModel):
-    question: str = Field(..., min_length=1)
-
-
-class ChatOut(BaseModel):
-    text: str
-    source: str = Field(..., description="store data, via RAG, via LLM, "
-                                         "access denied or unavailable")
-    citations: List[str] = []
-    rag_score: float = 0.0
-    denied_for_role: bool = False
-
-
-# ---------------------------------------------------------------- catalogue
+    ``exclude_unset`` at the call site is what distinguishes "set this to
+    null" from "leave it alone" -- without it a PATCH silently blanks every
+    field the client did not mention.
+    """
+    title: Optional[str] = Field(None, min_length=1, max_length=255)
+    author: Optional[str] = Field(None, min_length=1, max_length=255)
+    category: Optional[str] = Field(None, min_length=1, max_length=64)
+    year: Optional[int] = Field(None, ge=0, le=2200)
+    price: Optional[Decimal] = Field(None, ge=0, le=Decimal("100000"))
+    stock: Optional[int] = Field(None, ge=0)
+    description: Optional[str] = None
 
 
 class FacetOut(BaseModel):
     value: str
     count: int
+
+
+class FacetsOut(BaseModel):
+    categories: List[FacetOut]
+    authors: List[FacetOut]
+    decades: List[FacetOut]
+
+
+class PageOut(BaseModel):
+    """A page of results, with enough to render a pager.
+
+    An endpoint that returns a bare list cannot grow a limit without breaking
+    every client, so the catalogue is paginated from the start.
+    """
+    items: list
+    total: int
+    limit: int
+    offset: int
 
 
 class SearchHitOut(BaseModel):
@@ -165,82 +158,246 @@ class SearchHitOut(BaseModel):
 
 class ImageHitOut(BaseModel):
     book: BookOut
-    similarity: float
-    kind: str
+    score: float
+    matched_on: str = "cover"
 
 
-class BookIn(BaseModel):
-    title: str = Field(..., min_length=1)
-    author: str = Field(..., min_length=1)
-    category: str = "literature"
-    year: int = 0
-    price: float = Field(..., ge=0)
-    stock: int = Field(10, ge=0)
-    description: str = ""
+# ------------------------------------------------------------------- cart
 
 
-# ---------------------------------------------------------------- admin
+class CartItemIn(BaseModel):
+    book_id: int
+    quantity: int = Field(1, ge=1, le=99)
 
 
-class OrderListRow(BaseModel):
-    book: BookOut
-    count: int
-    average: float
-    plain_average: float
+class QuantityIn(BaseModel):
+    quantity: int = Field(..., ge=0, le=99)
 
 
-class OrderListsOut(BaseModel):
-    no_order: List[OrderListRow]
-    to_order: List[OrderListRow]
+class CartLineOut(BaseModel):
+    book_id: int
+    title: str
+    author: str
+    unit_price: Decimal
+    list_price: Decimal
+    quantity: int
+    line_total: Decimal
+    in_stock: int
+    enough_stock: bool
+    cover_url: Optional[str] = None
 
 
-class FinanceOut(BaseModel):
-    revenue_sales: float
-    revenue_fines: float
-    refunds: float
-    total_revenue: float
-    purchase_count: int
-    fine_count: int
-    average_order: float
-    customer_liability: float
-    inventory_value: float
-    suspended_count: int
-    negative_balance_count: int
-    top_books: List[dict] = []
-    revenue_by_category: List[dict] = []
-    user_counts: dict = {}
+class CartOut(BaseModel):
+    lines: List[CartLineOut]
+    item_count: int
+    subtotal: Decimal
+    discount: Decimal
+    total: Decimal
+    affordable: bool
+    balance: Decimal
 
 
-class AccountOut(BaseModel):
-    user_id: str
+# ----------------------------------------------------------------- orders
+
+
+class OrderLineOut(Out):
+    book_id: int
+    title: str
+    quantity: int
+    unit_price: Decimal
+    line_total: Decimal
+    cover_url: Optional[str] = None
+
+
+class PaymentOut(Out):
+    id: int
+    method: str
+    amount: Decimal
+    status: str
+    reference: str
+    created_at: dt.datetime
+
+
+class OrderOut(Out):
+    id: int
+    status: str
+    subtotal: Decimal
+    discount: Decimal
+    total: Decimal
+    discount_rate: Decimal
+    placed_at: Optional[dt.datetime] = None
+    items: List[OrderLineOut] = []
+    payments: List[PaymentOut] = []
+
+
+class CheckoutOut(BaseModel):
+    ok: bool
+    message: str
+    order: Optional[OrderOut] = None
+    promoted: bool = False
+    new_balance: Decimal
+    fine_applied: Decimal = Decimal("0.00")
+    suspended: bool = False
+
+
+# ---------------------------------------------------------------- reviews
+
+
+class ReviewIn(BaseModel):
+    stars: int = Field(..., ge=1, le=5)
+    comment: str = Field("", max_length=2000)
+
+
+class ReviewUpdateIn(BaseModel):
+    stars: Optional[int] = Field(None, ge=1, le=5)
+    comment: Optional[str] = Field(None, max_length=2000)
+
+
+class ReviewOut(Out):
+    id: int
+    book_id: int
+    stars: int
+    comment: str
+    author: str = "visitor"
+    verified_purchase: bool = False
+    weight: Decimal = Decimal("1.00")
+    created_at: dt.datetime
+
+
+class ReviewResultOut(BaseModel):
+    ok: bool
+    message: str
+    review: Optional[ReviewOut] = None
+    blocked: bool = False
+    taboo_hits: int = 0
+    warning_issued: bool = False
+    warnings_total: int = 0
+    suspended: bool = False
+    demoted: bool = False
+
+
+# ------------------------------------------------------------------- chat
+
+
+class ChatIn(BaseModel):
+    question: str = Field(..., min_length=1, max_length=1000)
+
+
+class ChatOut(BaseModel):
+    text: str
+    source: str
+    citations: List[str] = []
+    rag_score: float = 0.0
+    denied_for_role: bool = False
+
+
+# ------------------------------------------------------------ biometrics
+
+
+class BiometricStatusOut(BaseModel):
+    face_enrolled: bool
+    face_samples: int
+    face_model_trained: bool
+    detector: str
+    required_samples: int
+    available: bool
+    message: str = ""
+
+
+class EnrolResultOut(BaseModel):
+    ok: bool
+    message: str
+    accepted: int
+    total_samples: int
+    trained: bool
+
+
+# ------------------------------------------------------------- shelf scan
+
+
+class ShelfMatchOut(BaseModel):
+    book: Optional[BookOut] = None
+    confidence: float
+    region: List[int] = []
+    recognised: bool
+
+
+class ShelfScanOut(BaseModel):
+    ok: bool
+    message: str = ""
+    regions_found: int = 0
+    recognised_count: int = 0
+    segmentation: str = ""
+    matches: List[ShelfMatchOut] = []
+    recommendations: List[BookOut] = []
+    taste_profile: List[str] = []
+    annotated_url: Optional[str] = None
+
+
+# ------------------------------------------------------------------ admin
+
+
+class AccountOut(Out):
+    id: int
     username: str
     display_name: str
     role: str
     role_name: str
-    balance: float
-    total_spent: float
+    balance: Decimal
+    total_spent: Decimal
     purchase_count: int
-    total_fines: float
+    total_fines: Decimal
     warnings: int
     suspended: bool
     suspend_reason: str = ""
     face_samples: int = 0
+    created_at: dt.datetime
+
+
+class AccountUpdateIn(BaseModel):
+    display_name: Optional[str] = Field(None, max_length=128)
+    role: Optional[str] = Field(None, pattern="^(RC|VC|SU)$")
+
+
+class DepositIn(BaseModel):
+    amount: Decimal = Field(..., gt=0, le=Decimal("100000"))
+    note: str = Field("deposit", max_length=255)
+
+
+class SuspendIn(BaseModel):
+    reason: str = Field(..., min_length=1, max_length=255)
 
 
 class TabooIn(BaseModel):
-    word: str = Field(..., min_length=1)
+    word: str = Field(..., min_length=1, max_length=64)
+
+
+class OrderListEntryOut(BaseModel):
+    book_id: int
+    title: str
+    author: str
+    category: str
+    count: int
+    plain_average: float
+    weighted_average: float
+
+
+class OrderListsOut(BaseModel):
+    to_order: List[OrderListEntryOut]
+    no_order: List[OrderListEntryOut]
 
 
 class HealthOut(BaseModel):
     status: str
+    database: str
     books: int
     accounts: int
+    orders: int
     knowledge_base_chunks: int
-    covers_indexed: int
-    llm_ready: bool
-    llm_status: str
     face_model_trained: bool
     face_detector: str
+    llm_ready: bool
+    llm_status: str
 
 
-BookDetail.model_rebuild()
+BookDetailOut.model_rebuild()
