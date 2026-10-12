@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inkwell &amp; Co.</title>
+<meta name="description" content="An AI-enabled multimodal bookstore: browse the shelf, search by picture, ask the assistant.">
+<link rel="stylesheet" href="app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='4' fill='%2316213A'/><rect x='7' y='7' width='4' height='18' fill='%23E8622C'/><rect x='13' y='7' width='4' height='18' fill='%231F7A6B'/><rect x='19' y='7' width='6' height='18' fill='%23E0A32E'/></svg>">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="bar">
+  <div class="bar-in">
+    <button class="mark" id="home-btn" aria-label="Inkwell and Company, home">
+      <span class="mark-spines" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span class="mark-name">Inkwell &amp; Co.</span>
+    </button>
+
+    <nav class="nav" aria-label="Sections">
+      <button data-view="shelf" class="on">Shelf</button>
+      <button data-view="search">Search</button>
+      <button data-view="chat">Ask</button>
+      <button data-view="account" hidden id="nav-account">Account</button>
+      <button data-view="admin" hidden id="nav-admin">Manage</button>
+    </nav>
+
+    <div class="who">
+      <span id="who-text">Browsing as a visitor</span>
+      <button id="auth-btn" class="btn btn-ghost">Sign in</button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- ===================================================== shelf -->
+  <section class="view on" data-view="shelf">
+    <div class="hero">
+      <div class="hero-copy">
+        <h1 id="shelf-title">On the shelf</h1>
+        <p id="shelf-sub" class="lede">
+          Three picks, chosen from what the shop sells most. Sign in and they
+          become yours instead.
+        </p>
+      </div>
+      <div class="shelf" id="picks" role="list" aria-label="Recommended books"></div>
+      <div class="shelf-board" aria-hidden="true"></div>
+    </div>
+
+    <div class="filters" role="group" aria-label="Browse the catalogue">
+      <div class="filter-row">
+        <span class="filter-label">Browse by</span>
+        <div class="segmented" role="tablist" aria-label="Browsing axis">
+          <button role="tab" aria-selected="true" data-axis="categories">Category</button>
+          <button role="tab" aria-selected="false" data-axis="authors">Author</button>
+          <button role="tab" aria-selected="false" data-axis="decades">Decade</button>
+        </div>
+      </div>
+      <div class="chips" id="facets"></div>
+    </div>
+
+    <div class="shelf shelf-main" id="shelf" role="list" aria-label="Books"></div>
+    <div class="shelf-board" aria-hidden="true"></div>
+    <p class="empty" id="shelf-empty" hidden>Nothing shelved here yet.</p>
+  </section>
+
+  <!-- ===================================================== search -->
+  <section class="view" data-view="search">
+    <h1>Find a book</h1>
+    <p class="lede">
+      Search the words, or hand it a photograph of a cover and let it
+      recognise the book.
+    </p>
+
+    <form class="search" id="search-form">
+      <input id="q" type="search" placeholder="Title, author, or anything inside the book"
+             aria-label="Search terms" autocomplete="off">
+      <button class="btn btn-solid">Search</button>
+    </form>
+
+    <div class="or"><span>or</span></div>
+
+    <label class="drop" id="drop">
+      <input type="file" id="image-input" accept="image/*" hidden>
+      <strong>Search by picture</strong>
+      <span>Drop a cover or an internal figure here, or click to choose one.</span>
+      <span class="drop-note" id="drop-note"></span>
+    </label>
+
+    <p class="result-count" id="search-count" hidden></p>
+    <div class="grid" id="search-results"></div>
+  </section>
+
+  <!-- ===================================================== chat -->
+  <section class="view" data-view="chat">
+    <h1>Ask the shop</h1>
+    <p class="lede" id="chat-scope"></p>
+
+    <div class="legend" aria-hidden="true">
+      <span class="tag tag-store">store data</span> answered from our records
+      <span class="tag tag-rag">via RAG</span> retrieved from our own files
+      <span class="tag tag-llm">via LLM</span> answered by the local model
+      <span class="tag tag-deny">needs a higher tier</span>
+    </div>
+
+    <div class="thread" id="thread" aria-live="polite"></div>
+
+    <form class="ask" id="chat-form">
+      <input id="question" placeholder="Ask about a book, our hours, or your account"
+             aria-label="Your question" autocomplete="off">
+      <button class="btn btn-solid" id="ask-btn">Ask</button>
+    </form>
+    <div class="suggests" id="suggests"></div>
+  </section>
+
+  <!-- ===================================================== account -->
+  <section class="view" data-view="account">
+    <h1 id="account-name">Your account</h1>
+    <div class="stats" id="account-stats"></div>
+    <h2>Progress to VIP</h2>
+    <p class="lede" id="vip-note"></p>
+    <div class="meters" id="vip-meters"></div>
+
+    <h2>What you have bought</h2>
+    <div class="bought-list" id="purchases"></div>
+  </section>
+
+  <!-- ===================================================== admin -->
+  <section class="view" data-view="admin">
+    <h1>Manage the shop</h1>
+    <div class="segmented segmented-wide" role="tablist" aria-label="Management section">
+      <button role="tab" aria-selected="true" data-panel="finance">Finance</button>
+      <button role="tab" aria-selected="false" data-panel="reports">Reports (SQL)</button>
+      <button role="tab" aria-selected="false" data-panel="orders">Order lists</button>
+      <button role="tab" aria-selected="false" data-panel="accounts">Accounts</button>
+      <button role="tab" aria-selected="false" data-panel="taboo">Moderation</button>
+      <button role="tab" aria-selected="false" data-panel="newbook">Add a book</button>
+    </div>
+    <div id="admin-body"></div>
+  </section>
+
+</main>
+
+<!-- ===================================================== book detail -->
+<div class="sheet" id="sheet" hidden>
+  <div class="sheet-scrim" data-close></div>
+  <article class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+    <button class="sheet-close" data-close aria-label="Close">&times;</button>
+    <div id="sheet-body"></div>
+  </article>
+</div>
+
+<!-- ===================================================== sign in -->
+<div class="sheet" id="auth" hidden>
+  <div class="sheet-scrim" data-close-auth></div>
+  <article class="sheet-card sheet-narrow" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+    <button class="sheet-close" data-close-auth aria-label="Close">&times;</button>
+    <h2 id="auth-title">Sign in</h2>
+
+    <form id="login-form" class="stack">
+      <label>Username <input id="li-user" autocomplete="username" required></label>
+      <label>Password <input id="li-pass" type="password" autocomplete="current-password" required></label>
+      <button class="btn btn-solid">Sign in</button>
+      <p class="msg" id="login-msg" role="alert"></p>
+    </form>
+
+    <div class="demo">
+      <p>Demo accounts</p>
+      <ul id="demo-list">
+        <li><button data-u="margaret" data-p="admin123">margaret</button> super-user</li>
+        <li><button data-u="alice" data-p="alice123">alice</button> registered, $60</li>
+        <li><button data-u="carol" data-p="carol123">carol</button> VIP, 10% off</li>
+        <li><button data-u="dave" data-p="dave1234">dave</button> $0.50 — try buying</li>
+      </ul>
+    </div>
+
+    <details class="reg">
+      <summary>Create an account</summary>
+      <form id="reg-form" class="stack">
+        <label>Display name <input id="rg-name"></label>
+        <label>Username <input id="rg-user" required></label>
+        <label>Password <input id="rg-pass" type="password" minlength="4" required></label>
+        <label>Opening deposit <input id="rg-dep" type="number" value="25" min="0" step="1"></label>
+        <button class="btn btn-solid">Create account</button>
+        <p class="msg" id="reg-msg" role="alert"></p>
+      </form>
+    </details>
+  </article>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>
