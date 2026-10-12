@@ -213,9 +213,21 @@ def main() -> int:
                          json={"question": "What is the total revenue?"}).json()
     allowed = client.post("/api/chat", headers=head(t_boss),
                           json={"question": "What is the total revenue?"}).json()
-    check(3, "Chat answers grow with privilege",
-          denied["denied_for_role"] and not allowed["denied_for_role"],
-          "visitor refused (%s), super-user not (%s)"
+
+    # "Not refused" is not the same as "answered". An earlier version of this
+    # check asserted only that denied_for_role was false for the super-user,
+    # and it passed while the finance report was actually failing inside the
+    # answer -- the text read "Something went wrong answering that:
+    # 'StoreFacade' object has no attribute 'transactions'" and was still
+    # labelled a success. The check now requires the answer to come from
+    # store data and to contain real figures.
+    answered = (not allowed["denied_for_role"]
+                and allowed["source"] == "store data"
+                and "TOTAL REVENUE" in allowed["text"]
+                and "went wrong" not in allowed["text"])
+    check(3, "Chat answers grow with privilege; super-user gets the finances",
+          denied["denied_for_role"] and answered,
+          "visitor refused (%s); super-user got the report from %s"
           % (denied["source"], allowed["source"]))
 
     # ------------------------------------------------------------- item 4

@@ -249,11 +249,114 @@ class RecommenderFacade:
         return [_Pick(p) for p in picks]
 
 
+class FinanceFacade:
+    """The two finance texts the assistant prints, computed in SQL.
+
+    ``ChatService`` builds its own ``FinanceService(storage)`` in __init__,
+    and that class iterates ``storage.transactions``, ``.users`` and
+    ``.books`` -- attributes the file-backed store had and this facade does
+    not. The result was not a crash the tests would catch but a polite
+    failure *inside* an answer: a super-user asking for the finance report got
+    "Something went wrong answering that: 'StoreFacade' object has no
+    attribute 'transactions'", with the answer still labelled as successful.
+    Specification item 3's headline capability was broken and looked fine.
+
+    Replacing the attribute rather than widening the facade keeps the money
+    figures coming from one place -- services/finance.py, the same SQL the
+    super-user's Finance screen uses -- so the chat box and the screen cannot
+    disagree.
+    """
+
+    def __init__(self, session: Session, config):
+        self._session = session
+        self._config = config
+
+    def report_text(self) -> str:
+        from . import finance as finance_service
+        report = finance_service.report(self._session)
+
+        lines = [
+            "FINANCE REPORT",
+            "",
+            "Revenue from sales   $%10.2f" % report["revenue_sales"],
+            "Revenue from fines   $%10.2f" % report["revenue_fines"],
+            "Refunds              $%10.2f" % report["refunds"],
+            "TOTAL REVENUE        $%10.2f" % report["total_revenue"],
+            "",
+            "Paid orders          %11d" % report["order_count"],
+            "Average order        $%10.2f" % report["average_order"],
+            "Fines issued         %11d" % report["fine_count"],
+            "",
+            "Customer balances    $%10.2f" % report["customer_liability"],
+            "Stock at list price  $%10.2f" % report["inventory_value"],
+            "Suspended accounts   %11d" % report["suspended_count"],
+            "Accounts in debt     %11d" % report["negative_balance_count"],
+        ]
+
+        if report["top_books"]:
+            lines += ["", "Best sellers:"]
+            for book in report["top_books"]:
+                lines.append("  %-34s %3d sold  $%8.2f"
+                             % (book["title"][:34], book["units"],
+                                book["revenue"]))
+
+        if report["revenue_by_category"]:
+            lines += ["", "Revenue by category:"]
+            for row in report["revenue_by_category"]:
+                if row["revenue"]:
+                    lines.append("  %-20s $%8.2f  (%.1f%%)"
+                                 % (row["category"], row["revenue"],
+                                    row["pct_of_revenue"]))
+        return "\n".join(lines)
+
+    def user_statement(self, user: dict) -> str:
+        from sqlalchemy import select as _select
+
+        try:
+            account = self._session.get(m.User, int(user.get("user_id", 0)))
+        except (TypeError, ValueError):
+            account = None
+        if account is None:
+            return "No such account."
+
+        lines = [
+            "Account statement for %s" % (account.display_name
+                                          or account.username),
+            "Balance            $%8.2f" % account.balance,
+            "Lifetime spend     $%8.2f" % (account.total_spent or 0),
+            "Fines paid         $%8.2f" % account.total_fines,
+            "Purchases          %8d" % int(account.purchase_count or 0),
+            "Warnings           %8d" % account.warnings,
+        ]
+
+        movements = self._session.execute(
+            _select(m.Transaction)
+            .where(m.Transaction.user_id == account.id)
+            .order_by(m.Transaction.id.desc())
+            .limit(8)
+        ).scalars().all()
+
+        if movements:
+            lines += ["", "Recent activity:"]
+            for txn in movements:
+                book = (self._session.get(m.Book, txn.book_id)
+                        if txn.book_id else None)
+                label = book.title if book else (txn.note or "")
+                lines.append("  %-10s %-26s $%7.2f  %s"
+                             % (txn.kind, str(label)[:26], abs(txn.amount),
+                                txn.created_at.date().isoformat()))
+        return "\n".join(lines)
+
+
 def build_chat_service(session: Session, config, files, retriever, llm):
     """The assistant, wired to SQL through the facades above."""
     from ..chat import ChatService
-    return ChatService(
+    service = ChatService(
         StoreFacade(session), config, RulesFacade(session, config),
         CatalogFacade(session, files), RecommenderFacade(session, config),
         retriever, llm,
     )
+    # ChatService constructs its own FinanceService from the store it is
+    # given. Replace it with the SQL-backed one; see FinanceFacade.
+    service.finance = FinanceFacade(session, config)
+    return service
