@@ -111,7 +111,11 @@ def create_app(database: Optional[str] = None,
         """
         service = runtime.biometrics()
         llm = runtime.llm()
-        ready, note = llm.available()
+        llm_ready = llm.is_up()
+        llm_note = ("Ollama is answering at %s." % llm.base_url if llm_ready
+                    else "Ollama is not reachable at %s. Start it with "
+                         "'ollama serve', then 'ollama pull %s'."
+                         % (llm.base_url, llm.model))
 
         session = session_factory()()
         try:
@@ -133,8 +137,8 @@ def create_app(database: Optional[str] = None,
             books=int(books), accounts=int(users), orders=int(orders),
             knowledge_base_chunks=len(runtime.retriever().chunks),
             face_model_trained=service.face.trained,
-            face_detector=service.face.backend_description(),
-            llm_ready=bool(ready), llm_status=note,
+            face_detector=service.face.backend_description,
+            llm_ready=bool(llm_ready), llm_status=llm_note,
         )
 
     # -- the browser client -----------------------------------------------

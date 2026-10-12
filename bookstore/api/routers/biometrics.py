@@ -77,8 +77,8 @@ def status_(user: m.User = Depends(require_user)):
         face_enrolled=samples > 0,
         face_samples=samples,
         face_model_trained=service.face.trained,
-        detector=service.face.backend_description(),
-        required_samples=config.face_enrolment_samples,
+        detector=service.face.backend_description,
+        required_samples=int(config.get("face_enrolment_samples", 5)),
         available=service.face.available(),
         message="" if service.face.available()
         else service.face.dependency_message(),
@@ -134,7 +134,7 @@ async def enroll_face(frames: List[UploadFile] = File(...),
         return S.EnrolResultOut(ok=False, message=message, accepted=0,
                                 total_samples=total, trained=trained)
 
-    required = runtime.config().face_enrolment_samples
+    required = int(runtime.config().get("face_enrolment_samples", 5))
     if total < required:
         message = ("Captured %d of %d. Keep going -- more angles make "
                    "recognition more reliable." % (total, required))

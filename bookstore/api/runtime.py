@@ -14,7 +14,12 @@ from ..config import Config
 from ..storage import Storage
 
 
-_lock = threading.Lock()
+#: Reentrant on purpose. These builders call one another -- retriever(),
+#: images() and biometrics() each need files() -- so a plain Lock deadlocks
+#: the moment one of them runs: the outer call holds it and the inner call
+#: waits for it, in the same thread, forever. The symptom was a /api/health
+#: request that never returned and a server with an empty log.
+_lock = threading.RLock()
 _state: dict = {}
 
 
