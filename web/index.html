@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Inkwell &amp; Co.</title>
-<meta name="description" content="An AI-enabled multimodal bookstore: browse the shelf, search by picture, ask the assistant.">
+<meta name="description" content="An AI-enabled multimodal bookstore: browse the shelf, search by picture, sign in with your face, scan your bookshelf.">
 <link rel="stylesheet" href="app.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='4' fill='%2316213A'/><rect x='7' y='7' width='4' height='18' fill='%23E8622C'/><rect x='13' y='7' width='4' height='18' fill='%231F7A6B'/><rect x='19' y='7' width='6' height='18' fill='%23E0A32E'/></svg>">
 </head>
@@ -22,12 +22,18 @@
     <nav class="nav" aria-label="Sections">
       <button data-view="shelf" class="on">Shelf</button>
       <button data-view="search">Search</button>
+      <button data-view="scan">Shelf&nbsp;Scan</button>
       <button data-view="chat">Ask</button>
+      <button data-view="orders" hidden id="nav-orders">Orders</button>
       <button data-view="account" hidden id="nav-account">Account</button>
       <button data-view="admin" hidden id="nav-admin">Manage</button>
     </nav>
 
     <div class="who">
+      <button id="cart-btn" class="cart-btn" hidden aria-label="Your cart">
+        <span aria-hidden="true">Cart</span>
+        <span class="cart-count" id="cart-count">0</span>
+      </button>
       <span id="who-text">Browsing as a visitor</span>
       <button id="auth-btn" class="btn btn-ghost">Sign in</button>
     </div>
@@ -65,6 +71,11 @@
     <div class="shelf shelf-main" id="shelf" role="list" aria-label="Books"></div>
     <div class="shelf-board" aria-hidden="true"></div>
     <p class="empty" id="shelf-empty" hidden>Nothing shelved here yet.</p>
+    <div class="pager" id="shelf-pager" hidden>
+      <button class="btn btn-ghost" id="page-prev">Previous</button>
+      <span id="page-label"></span>
+      <button class="btn btn-ghost" id="page-next">Next</button>
+    </div>
   </section>
 
   <!-- ===================================================== search -->
@@ -94,6 +105,26 @@
     <div class="grid" id="search-results"></div>
   </section>
 
+  <!-- ===================================================== shelf scan -->
+  <section class="view" data-view="scan">
+    <h1>Shelf Scan</h1>
+    <p class="lede">
+      Photograph a bookshelf &mdash; yours or ours. The scanner segments the
+      photo into individual books, matches each one against our cover index,
+      reads your taste from what it finds, and recommends three more. It is how
+      a brand-new customer gets real recommendations before browsing anything.
+    </p>
+
+    <label class="drop drop-wide" id="scan-drop">
+      <input type="file" id="scan-input" accept="image/*" hidden>
+      <strong>Choose a shelf photo</strong>
+      <span>Drop one here, or click to choose. Books standing spine-out work best.</span>
+      <span class="drop-note" id="scan-note"></span>
+    </label>
+
+    <div id="scan-result"></div>
+  </section>
+
   <!-- ===================================================== chat -->
   <section class="view" data-view="chat">
     <h1>Ask the shop</h1>
@@ -116,16 +147,28 @@
     <div class="suggests" id="suggests"></div>
   </section>
 
+  <!-- ===================================================== orders -->
+  <section class="view" data-view="orders">
+    <h1>Your orders</h1>
+    <p class="lede">Every order, with the price you actually paid at the time.</p>
+    <div id="orders-list"></div>
+  </section>
+
   <!-- ===================================================== account -->
   <section class="view" data-view="account">
     <h1 id="account-name">Your account</h1>
     <div class="stats" id="account-stats"></div>
+
     <h2>Progress to VIP</h2>
     <p class="lede" id="vip-note"></p>
     <div class="meters" id="vip-meters"></div>
 
-    <h2>What you have bought</h2>
-    <div class="bought-list" id="purchases"></div>
+    <h2>Sign in with your face</h2>
+    <p class="lede" id="face-note">
+      Enrol a few photographs and you can sign in by looking at the camera
+      instead of typing a password.
+    </p>
+    <div class="face-panel" id="face-panel"></div>
   </section>
 
   <!-- ===================================================== admin -->
@@ -153,6 +196,16 @@
   </article>
 </div>
 
+<!-- ===================================================== cart -->
+<div class="sheet" id="cart-sheet" hidden>
+  <div class="sheet-scrim" data-close-cart></div>
+  <article class="sheet-card sheet-narrow" role="dialog" aria-modal="true" aria-labelledby="cart-title">
+    <button class="sheet-close" data-close-cart aria-label="Close">&times;</button>
+    <h2 id="cart-title">Your cart</h2>
+    <div id="cart-body"></div>
+  </article>
+</div>
+
 <!-- ===================================================== sign in -->
 <div class="sheet" id="auth" hidden>
   <div class="sheet-scrim" data-close-auth></div>
@@ -167,13 +220,16 @@
       <p class="msg" id="login-msg" role="alert"></p>
     </form>
 
+    <div class="or"><span>or</span></div>
+    <button class="btn btn-ghost btn-wide" id="face-login-btn">Sign in with your face</button>
+
     <div class="demo">
       <p>Demo accounts</p>
       <ul id="demo-list">
         <li><button data-u="margaret" data-p="admin123">margaret</button> super-user</li>
-        <li><button data-u="alice" data-p="alice123">alice</button> registered, $60</li>
+        <li><button data-u="alice" data-p="alice123">alice</button> registered</li>
         <li><button data-u="carol" data-p="carol123">carol</button> VIP, 10% off</li>
-        <li><button data-u="dave" data-p="dave1234">dave</button> $0.50 — try buying</li>
+        <li><button data-u="dave" data-p="dave1234">dave</button> suspended — try it</li>
       </ul>
     </div>
 
@@ -188,6 +244,26 @@
         <p class="msg" id="reg-msg" role="alert"></p>
       </form>
     </details>
+  </article>
+</div>
+
+<!-- ===================================================== camera -->
+<div class="sheet" id="camera" hidden>
+  <div class="sheet-scrim" data-close-camera></div>
+  <article class="sheet-card sheet-narrow" role="dialog" aria-modal="true" aria-labelledby="camera-title">
+    <button class="sheet-close" data-close-camera aria-label="Close">&times;</button>
+    <h2 id="camera-title">Camera</h2>
+    <p class="lede" id="camera-hint">Face the camera straight on, with the light in front of you.</p>
+    <div class="cam-wrap">
+      <video id="cam-video" playsinline muted></video>
+      <div class="cam-ring" aria-hidden="true"></div>
+    </div>
+    <canvas id="cam-canvas" hidden></canvas>
+    <div class="cam-actions">
+      <button class="btn btn-solid" id="cam-go">Capture</button>
+      <button class="btn btn-ghost" data-close-camera>Cancel</button>
+    </div>
+    <p class="msg" id="camera-msg" role="alert"></p>
   </article>
 </div>
 

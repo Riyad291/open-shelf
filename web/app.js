@@ -1,69 +1,70 @@
-/* Inkwell & Co. — web client.
+/* Inkwell & Co. — browser client.
  *
- * Plain ES modules-free JavaScript, no build step: open the page and it runs.
- * Every call goes to the REST API, which in turn calls the same business
- * rules the desktop client uses, so there is no logic here beyond presentation
- * and no duplicated rule to drift.
+ * No framework and no build step: this is the whole front end. It talks to the
+ * FastAPI service with fetch(), holds a JWT access token in memory and a
+ * refresh token in localStorage, and renders the catalogue as book spines on a
+ * shelf because the shop's signature feature recognises books from a shelf
+ * photograph.
  */
 
 "use strict";
 
 const API = "/api";
-const CATEGORY_COLOUR = {
-  literature: "#e8622c", science: "#1f7a6b", history: "#8c2f39",
-  philosophy: "#4a3a82", poetry: "#b5476b", children: "#e0a32e",
-  technology: "#2d6e9e", biography: "#5c6b3f",
-};
-const colour = (c) => CATEGORY_COLOUR[(c || "").toLowerCase()] || "#4d5a74";
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
 const state = {
-  token: localStorage.getItem("inkwell.token") || null,
-  session: null,
-  axis: "categories",
-  facet: null,
-  facets: null,
+  access: null,
+  refresh: localStorage.getItem("inkwell.refresh") || null,
+  session: { signed_in: false, role: "VS", role_name: "Visitor" },
+  cart: null,
+  page: { offset: 0, limit: 24, total: 0 },
+  filter: { axis: "categories", value: null },
+  camera: { stream: null, mode: null, shots: [] },
 };
 
 /* ------------------------------------------------------------------ util */
 
-const $ = (sel, root = document) => root.querySelector(sel);
-const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => (
+  { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-function esc(s) {
-  return String(s ?? "").replace(/[&<>"']/g, (c) => (
-    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
-  ));
-}
+const money = (v) => "$" + Number(v ?? 0).toFixed(2);
 
-function money(n) { return "$" + Number(n || 0).toFixed(2); }
+const stars = (n) => n == null ? "" :
+  "★".repeat(Math.round(n)) + "☆".repeat(Math.max(0, 5 - Math.round(n)));
 
-function stars(n) {
-  const k = Math.round(Number(n) || 0);
-  return "★".repeat(Math.max(0, Math.min(5, k))) + "☆".repeat(Math.max(0, 5 - k));
-}
-
-let toastTimer;
+let toastTimer = null;
 function toast(message, kind = "") {
   const el = $("#toast");
   el.textContent = message;
   el.className = "toast " + kind;
   el.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { el.hidden = true; }, 5200);
+  toastTimer = setTimeout(() => { el.hidden = true; }, 4200);
 }
 
-async function api(path, { method = "GET", body, raw } = {}) {
+/* Every call goes through here, so the refresh dance lives in one place:
+   a 401 on an authenticated call is retried once with a fresh access token
+   before the person is told anything. */
+async function api(path, { method = "GET", body, raw = false, retry = true } = {}) {
   const headers = {};
-  if (state.token) headers.Authorization = "Bearer " + state.token;
-  if (body && !raw) headers["Content-Type"] = "application/json";
+  if (!raw && body !== undefined) headers["Content-Type"] = "application/json";
+  if (state.access) headers["Authorization"] = "Bearer " + state.access;
 
   const response = await fetch(API + path, {
     method,
     headers,
-    body: raw ? body : (body ? JSON.stringify(body) : undefined),
+    body: raw ? body : (body !== undefined ? JSON.stringify(body) : undefined),
   });
 
+  if (response.status === 401 && retry && state.refresh) {
+    if (await refreshSession()) {
+      return api(path, { method, body, raw, retry: false });
+    }
+  }
+
   if (response.status === 204) return null;
+
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(payload.detail || `Request failed (${response.status})`);
@@ -73,15 +74,47 @@ async function api(path, { method = "GET", body, raw } = {}) {
 
 /* --------------------------------------------------------------- session */
 
+function storeTokens(data) {
+  state.access = data.access_token;
+  state.refresh = data.refresh_token;
+  localStorage.setItem("inkwell.refresh", data.refresh_token);
+  state.session = data.session;
+}
+
+function clearTokens() {
+  state.access = null;
+  state.refresh = null;
+  state.cart = null;
+  localStorage.removeItem("inkwell.refresh");
+  state.session = { signed_in: false, role: "VS", role_name: "Visitor" };
+}
+
 async function refreshSession() {
+  if (!state.refresh) return false;
+  try {
+    const response = await fetch(API + "/auth/refresh", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: state.refresh }),
+    });
+    if (!response.ok) { clearTokens(); return false; }
+    storeTokens(await response.json());
+    return true;
+  } catch {
+    clearTokens();
+    return false;
+  }
+}
+
+async function loadSession() {
+  if (state.refresh && !state.access) await refreshSession();
   try {
     state.session = await api("/auth/session");
   } catch {
-    state.token = null;
-    localStorage.removeItem("inkwell.token");
     state.session = { signed_in: false, role: "VS", role_name: "Visitor" };
   }
   paintSession();
+  if (state.session.signed_in) loadCart().catch(() => {});
 }
 
 function paintSession() {
@@ -94,6 +127,8 @@ function paintSession() {
     : "Browsing as a visitor";
 
   $("#auth-btn").textContent = signedIn ? "Sign out" : "Sign in";
+  $("#cart-btn").hidden = !signedIn;
+  $("#nav-orders").hidden = !signedIn || s.role === "SU";
   $("#nav-account").hidden = !signedIn || s.role === "SU";
   $("#nav-admin").hidden = s.role !== "SU";
 
@@ -109,403 +144,367 @@ function paintSession() {
 
 /* ----------------------------------------------------------------- shelf */
 
+const SPINE_COLOURS = {
+  literature: "#e8622c", science: "#1f7a6b", history: "#8c2f39",
+  philosophy: "#4a3a82", poetry: "#b5476b", children: "#e0a32e",
+  technology: "#2d6e9e", biography: "#5c6b3f",
+};
+
 function spine(book, rank) {
-  const el = document.createElement("button");
-  el.className = "spine";
-  el.setAttribute("role", "listitem");
-  el.style.setProperty("--spine", colour(book.category));
-  el.style.height = (168 + ((book.title.length * 7) % 92)) + "px";
-  if (book.title.length > 34) el.classList.add("wide");
-  el.dataset.status = book.list_status;
-  el.dataset.oos = book.stock === 0 ? "1" : "0";
-  el.setAttribute("aria-label",
-    `${book.title} by ${book.author}, ${money(book.your_price)}`);
-  el.innerHTML =
-    (rank ? `<span class="spine-rank">${rank}</span>` : "<span></span>") +
-    `<span class="spine-text">${esc(book.title)}` +
-      `<span class="spine-author">  ${esc(book.author)}</span></span>` +
-    `<span class="spine-foot">${money(book.your_price)}</span>`;
-  el.addEventListener("click", () => openBook(book.book_id));
-  return el;
+  const colour = SPINE_COLOURS[book.category] || "#6b7280";
+  const height = 150 + ((book.title.length * 7) % 90);
+  const badge = book.list_status === "no-order" ? "no-order"
+    : book.list_status === "to-order" ? "to-order" : "";
+  return `
+    <button class="spine" role="listitem" data-book="${book.id}"
+            style="--spine:${colour};--h:${height}px"
+            title="${esc(book.title)} — ${esc(book.author)}">
+      ${rank ? `<span class="spine-rank">${rank}</span>` : ""}
+      <span class="spine-text">
+        <b>${esc(book.title)}</b><i>${esc(book.author)}</i>
+      </span>
+      <span class="spine-foot">${money(book.your_price)}</span>
+      ${badge ? `<span class="spine-dot ${badge}" aria-hidden="true"></span>` : ""}
+    </button>`;
 }
 
-function fillShelf(container, books, ranked) {
-  container.replaceChildren();
-  books.forEach((b, i) => container.appendChild(spine(b, ranked ? i + 1 : 0)));
+function card(book, note) {
+  return `
+    <button class="card" data-book="${book.id}">
+      ${book.cover_url ? `<img src="${esc(book.cover_url)}" alt="" loading="lazy">` : ""}
+      <span class="card-t">
+        <b>${esc(book.title)}</b>
+        <i>${esc(book.author)}</i>
+        ${book.rating != null ? `<span class="stars">${stars(book.rating)}</span>` : ""}
+        <span class="card-p">${money(book.your_price)}</span>
+        ${note ? `<span class="card-n">${esc(note)}</span>` : ""}
+      </span>
+    </button>`;
 }
 
 async function loadPicks() {
-  const recs = await api("/recommendations");
-  const s = state.session || {};
-  const personal = s.signed_in && (s.role === "RC" || s.role === "VC");
-
-  $("#shelf-title").textContent = personal
-    ? `Picked for ${esc(s.display_name || s.username).split(" ")[0]}`
+  const picks = await api("/recommendations");
+  $("#picks").innerHTML = picks
+    .map((p, i) => spine(p.book, i + 1)).join("");
+  $("#shelf-title").textContent = state.session.signed_in
+    ? `Picked for ${esc(state.session.display_name || state.session.username)}`
     : "On the shelf";
-  $("#shelf-sub").textContent = personal
-    ? "Chosen from the books you have browsed and bought. Anything we have stopped reordering is left out."
-    : "The three most bought and most viewed books in the shop. Sign in and these become yours instead.";
-
-  fillShelf($("#picks"), recs.map((r) => r.book), true);
-  [...$("#picks").children].forEach((el, i) => {
-    el.title = recs[i].reason;
-  });
+  $("#shelf-sub").textContent = picks.length
+    ? picks[0].reason
+    : "Nothing to recommend yet.";
 }
 
 async function loadFacets() {
-  state.facets = await api("/books/facets");
+  const facets = await api("/books/facets");
+  state.facets = facets;
   paintFacets();
 }
 
 function paintFacets() {
-  const list = (state.facets && state.facets[state.axis]) || [];
-  const box = $("#facets");
-  box.replaceChildren();
-  list.forEach((f) => {
-    const b = document.createElement("button");
-    b.className = "chip" + (state.facet === f.value ? " on" : "");
-    if (state.axis === "categories") b.style.setProperty("--chip", colour(f.value));
-    b.innerHTML = `${esc(f.value)}<em>${f.count}</em>`;
-    b.addEventListener("click", () => {
-      state.facet = state.facet === f.value ? null : f.value;
-      paintFacets();
-      loadShelf();
-    });
-    box.appendChild(b);
-  });
+  const items = (state.facets || {})[state.filter.axis] || [];
+  $("#facets").innerHTML = items.map((f) => `
+    <button class="chip ${state.filter.value === f.value ? "on" : ""}"
+            data-facet="${esc(f.value)}">
+      ${esc(f.value)} <span>${f.count}</span>
+    </button>`).join("");
 }
 
 async function loadShelf() {
-  const params = new URLSearchParams();
-  if (state.facet) {
-    const key = { categories: "category", authors: "author", decades: "decade" }[state.axis];
-    params.set(key, state.facet);
+  const params = new URLSearchParams({
+    limit: state.page.limit, offset: state.page.offset,
+  });
+  if (state.filter.value) {
+    const key = { categories: "category", authors: "author", decades: "decade" };
+    params.set(key[state.filter.axis], state.filter.value);
   }
-  const books = await api("/books" + (params.toString() ? "?" + params : ""));
-  fillShelf($("#shelf"), books, false);
-  $("#shelf-empty").hidden = books.length > 0;
+
+  const page = await api("/books?" + params.toString());
+  state.page.total = page.total;
+  $("#shelf").innerHTML = page.items.map((b) => spine(b)).join("");
+  $("#shelf-empty").hidden = page.items.length > 0;
+
+  const pages = Math.ceil(page.total / state.page.limit) || 1;
+  const current = Math.floor(state.page.offset / state.page.limit) + 1;
+  $("#shelf-pager").hidden = pages <= 1;
+  $("#page-label").textContent = `Page ${current} of ${pages} · ${page.total} books`;
+  $("#page-prev").disabled = state.page.offset === 0;
+  $("#page-next").disabled = state.page.offset + state.page.limit >= page.total;
 }
 
 /* ------------------------------------------------------------ book sheet */
 
-function card(book, why) {
-  const el = document.createElement("button");
-  el.className = "card";
-  el.style.setProperty("--spine", colour(book.category));
-  el.innerHTML =
-    (book.cover_url ? `<img src="${book.cover_url}" alt="">` : "") +
-    `<span><span class="card-t">${esc(book.title)}</span>` +
-    `<span class="card-a">${esc(book.author)}</span>` +
-    `<span class="card-m">${money(book.your_price)} · ` +
-      (book.rating ? `${stars(book.rating)} ${book.rating.toFixed(1)}` : "no ratings") +
-    `</span>` +
-    (why ? `<span class="card-why">${esc(why)}</span>` : "") +
-    `</span>`;
-  el.addEventListener("click", () => openBook(book.book_id));
-  return el;
+async function openBook(id) {
+  const book = await api("/books/" + id);
+  $("#sheet-body").innerHTML = bookSheet(book);
+  $("#sheet").hidden = false;
+  wireBookSheet(book);
 }
 
-async function openBook(bookId) {
-  const book = await api("/books/" + bookId);
-  const s = state.session || {};
-  const discounted = book.your_price < book.price;
-
-  const statusNote = {
-    "to-order": `<div class="note good">More than three ratings averaging above 4, so this is on our to-order list — we keep it in stock.</div>`,
-    "no-order": `<div class="note bad">More than three ratings averaging below 2, so this is on our no-order list. We will not be reordering it.</div>`,
-  }[book.list_status] || "";
-
-  $("#sheet-body").innerHTML = `
-    <div class="detail-top">
-      ${book.cover_url ? `<img class="detail-cover" src="${book.cover_url}" alt="Cover of ${esc(book.title)}">` : ""}
+function bookSheet(book) {
+  const discounted = Number(book.your_price) < Number(book.price);
+  return `
+    <div class="detail">
+      ${book.cover_url ? `<img class="detail-cover" src="${esc(book.cover_url)}" alt="Cover of ${esc(book.title)}">` : ""}
       <div class="detail-main">
         <h2 id="sheet-title">${esc(book.title)}</h2>
         <p class="detail-author">${esc(book.author)}</p>
-        <div class="facts">
-          ${[["Category", book.category], ["Published", book.year || "unknown"],
-             ["In stock", book.stock], ["Viewed", book.browse_count],
-             ["Sold", book.purchase_count]]
-            .map(([k, v]) => `<div><div class="fact-k">${k}</div><div class="fact-v">${esc(v)}</div></div>`)
-            .join("")}
-        </div>
-        <p class="rating-line">${
-          book.rating_count
-            ? `<span class="stars">${stars(book.rating)}</span> ${book.rating.toFixed(2)} weighted
-               · ${book.plain_rating.toFixed(2)} plain · ${book.rating_count} rating${book.rating_count === 1 ? "" : "s"}
-               · ${book.verified_buyers} verified buyer${book.verified_buyers === 1 ? "" : "s"}`
-            : "No ratings yet."
-        }</p>
-        ${statusNote}
-        ${book.description ? `<p class="serif">${esc(book.description)}</p>` : ""}
-        <div class="price-row">
-          <span class="price">${money(book.your_price)}</span>
-          ${discounted ? `<span class="price-was">${money(book.price)}</span>
-                          <span class="price-off">VIP discount applied</span>` : ""}
-        </div>
+        <dl class="detail-facts">
+          <div><dt>Category</dt><dd>${esc(book.category)}</dd></div>
+          <div><dt>Published</dt><dd>${esc(book.year ?? "—")}</dd></div>
+          <div><dt>In stock</dt><dd>${book.stock}</dd></div>
+          <div><dt>Sold</dt><dd>${book.purchase_count}</dd></div>
+        </dl>
+        <p class="rating-line">${book.rating_count
+          ? `<span class="stars">${stars(book.rating)}</span> ${book.rating} from ${book.rating_count} rating${book.rating_count === 1 ? "" : "s"}`
+          : "No ratings yet."}</p>
+        ${book.list_status !== "normal"
+          ? `<p class="note ${book.list_status === "no-order" ? "bad" : "good"}">
+               This title is on the <b>${esc(book.list_status)}</b> list.</p>` : ""}
+        <p class="serif">${esc(book.description)}</p>
+
+        <p class="price">
+          ${discounted ? `<span class="price-was">${money(book.price)}</span> ` : ""}
+          ${money(book.your_price)}
+          ${discounted ? `<span class="price-off">VIP price</span>` : ""}
+        </p>
         <div id="buy-area"></div>
       </div>
     </div>
-    ${book.figures.length ? `<h3>Figures from inside</h3>
-      <div style="display:flex;gap:10px;flex-wrap:wrap">${
-        book.figures.map((f) => `<img src="${f}" alt="" style="width:170px;border-radius:2px">`).join("")
-      }</div>` : ""}
-    <h3>Ratings and comments</h3>
-    <p style="font-size:.86rem;color:var(--graphite-2)">
-      Comments from customers who bought the book count double in the average.
-      Taboo words are masked, and a comment with more than three is blocked.
-    </p>
-    <div id="review-form"></div>
-    <div id="review-list">${
-      book.reviews.length
-        ? book.reviews.map(reviewHtml).join("")
-        : `<p style="color:var(--graphite-2)">No ratings yet. Be the first.</p>`
-    }</div>
-  `;
 
-  paintBuyArea(book);
-  paintReviewForm(book);
-  $("#sheet").hidden = false;
-  $("#sheet-card, .sheet-card")?.scrollTo?.(0, 0);
+    ${book.figures.length ? `
+      <h3>Figures from inside</h3>
+      <div class="figures">${book.figures.map((f) =>
+        `<img src="${esc(f.url)}" alt="Figure from ${esc(book.title)}" loading="lazy">`).join("")}</div>` : ""}
+
+    <h3>Ratings and comments</h3>
+    <p class="muted">Comments from customers who bought the book count double in
+      the average. Taboo words are masked, and a comment with more than three
+      is blocked.</p>
+    <div id="review-list">${book.reviews.map(reviewHtml).join("")
+      || `<p class="muted">Nobody has reviewed this yet.</p>`}</div>
+    <div id="review-form"></div>`;
 }
 
 function reviewHtml(r) {
-  return `<div class="review">
-    <div class="review-h">
-      <span class="stars">${stars(r.stars)}</span>
-      <span class="review-who">${esc(r.author)}</span>
-      ${r.verified_purchase ? `<span class="badge">verified buyer</span>`
-                            : `<span class="badge grey">counts once</span>`}
-      <span style="margin-left:auto;color:var(--graphite-2);font-size:.8rem">${esc(r.created_at.slice(0, 10))}</span>
-    </div>
-    ${r.comment ? `<p class="review-body">${esc(r.comment)}</p>` : ""}
-    ${r.taboo_hits ? `<p class="review-flag">${r.taboo_hits} taboo word${r.taboo_hits === 1 ? "" : "s"} masked by the filter.</p>` : ""}
-  </div>`;
-}
-
-function paintBuyArea(book) {
-  const area = $("#buy-area");
-  const s = state.session || {};
-
-  if (!s.signed_in) {
-    area.innerHTML = `<p style="color:var(--graphite-2);font-size:.9rem">
-      Sign in to buy. You can still rate and comment as a visitor.</p>`;
-    return;
-  }
-  if (s.role === "SU") {
-    area.innerHTML = `<p style="color:var(--graphite-2);font-size:.9rem">
-      Super-user accounts manage the shop rather than buying from it.</p>`;
-    return;
-  }
-
-  const short = s.balance < book.your_price;
-  area.innerHTML = `
-    <p style="font-size:.9rem;color:${short ? "var(--warn)" : "var(--graphite-2)"}">
-      Your balance: ${money(s.balance)}</p>
-    ${short ? `<div class="note">This costs more than your balance. Buying anyway is
-       refused and charges a $1.00 fine.</div>` : ""}
-    <button class="btn btn-paper" id="buy" ${book.stock ? "" : "disabled"}>
-      ${book.stock ? "Buy this book" : "Out of stock"}</button>`;
-
-  $("#buy")?.addEventListener("click", async () => {
-    $("#buy").disabled = true;
-    try {
-      const r = await api(`/books/${book.book_id}/purchase`, { method: "POST" });
-      toast(r.message, r.ok ? "good" : (r.suspended ? "bad" : "warn"));
-      await refreshSession();
-      if (r.suspended) { await signOut(); $("#sheet").hidden = true; return; }
-      await Promise.all([loadPicks(), loadShelf()]);
-      openBook(book.book_id);
-    } catch (e) {
-      toast(e.message, "bad");
-      $("#buy").disabled = false;
-    }
-  });
-}
-
-function paintReviewForm(book) {
-  let picked = 0;
-  const s = state.session || {};
-  $("#review-form").innerHTML = `
-    <div class="stack" style="max-width:560px;margin-bottom:8px">
-      <div>
-        <div style="font-weight:600;font-size:.9rem">Leave a rating</div>
-        ${!s.signed_in ? `<div style="font-size:.84rem;color:var(--graphite-2)">
-          Posting as a visitor. Sign in and your rating is kept with your account,
-          and counts double on books you bought.</div>` : ""}
-        <div class="starpick" id="starpick">${
-          [1, 2, 3, 4, 5].map((n) => `<button type="button" data-n="${n}" aria-label="${n} stars">☆</button>`).join("")
-        }</div>
+  return `
+    <div class="review">
+      <div class="review-head">
+        <span class="stars">${stars(r.stars)}</span>
+        <b>${esc(r.author)}</b>
+        ${r.verified_purchase ? `<span class="badge">bought it — counts double</span>` : ""}
       </div>
-      <textarea id="review-text" placeholder="What did you think?"></textarea>
-      <div><button class="btn btn-paper" id="post-review">Post rating</button></div>
-      <p class="msg" id="review-msg"></p>
+      <p>${esc(r.comment)}</p>
     </div>`;
+}
 
-  $$("#starpick button").forEach((b) => {
-    b.addEventListener("click", () => {
-      picked = Number(b.dataset.n);
-      $$("#starpick button").forEach((x, i) => {
-        const on = i < picked;
-        x.textContent = on ? "★" : "☆";
-        x.classList.toggle("on", on);
-      });
+function wireBookSheet(book) {
+  const buy = $("#buy-area");
+  if (!state.session.signed_in) {
+    buy.innerHTML = `<p class="muted">Sign in to buy. You can still rate and
+      comment as a visitor.</p>`;
+  } else if (state.session.role === "SU") {
+    buy.innerHTML = `<p class="muted">You are signed in as staff.</p>`;
+  } else if (book.stock < 1) {
+    buy.innerHTML = `<p class="note bad">Out of stock.</p>`;
+  } else {
+    buy.innerHTML = `
+      <div class="buy-row">
+        <label class="qty">Qty
+          <input type="number" id="buy-qty" value="1" min="1" max="${book.stock}">
+        </label>
+        <button class="btn btn-solid" id="add-cart">Add to cart</button>
+      </div>`;
+    $("#add-cart").addEventListener("click", async () => {
+      const quantity = Math.max(1, Number($("#buy-qty").value) || 1);
+      try {
+        state.cart = await api("/cart/items", {
+          method: "POST", body: { book_id: book.id, quantity },
+        });
+        paintCartCount();
+        toast(`Added ${book.title} to your cart.`, "good");
+      } catch (e) { toast(e.message, "bad"); }
     });
-  });
+  }
+
+  const form = $("#review-form");
+  form.innerHTML = `
+    <h4>Leave a rating</h4>
+    <p class="muted">${state.session.signed_in
+      ? "Your rating is kept with your account, and counts double on books you bought."
+      : "Posting as a visitor. Sign in and your rating is kept with your account."}</p>
+    <div class="star-pick" id="star-pick">${[1, 2, 3, 4, 5].map((n) =>
+      `<button data-stars="${n}" aria-label="${n} stars">☆</button>`).join("")}</div>
+    <textarea id="review-text" placeholder="What did you think?"></textarea>
+    <button class="btn btn-solid" id="post-review">Post rating</button>`;
+
+  let chosen = 0;
+  $$("#star-pick button").forEach((b) => b.addEventListener("click", () => {
+    chosen = Number(b.dataset.stars);
+    $$("#star-pick button").forEach((x, i) => {
+      x.textContent = i < chosen ? "★" : "☆";
+    });
+  }));
 
   $("#post-review").addEventListener("click", async () => {
-    if (!picked) {
-      $("#review-msg").textContent = "Choose a star rating first.";
-      $("#review-msg").className = "msg bad";
-      return;
-    }
+    if (!chosen) { toast("Pick a star rating first.", "warn"); return; }
     try {
-      const r = await api(`/books/${book.book_id}/reviews`, {
+      const result = await api(`/books/${book.id}/reviews`, {
         method: "POST",
-        body: { stars: picked, comment: $("#review-text").value.trim() },
+        body: { stars: chosen, comment: $("#review-text").value },
       });
-      toast(r.message, r.ok ? "good" : "warn");
-      await refreshSession();
-      if (r.suspended) { await signOut(); $("#sheet").hidden = true; return; }
-      await loadShelf();
-      openBook(book.book_id);
-    } catch (e) {
-      $("#review-msg").textContent = e.message;
-      $("#review-msg").className = "msg bad";
+      toast(result.message, result.ok ? "good" : "bad");
+      if (result.ok) openBook(book.id);
+      if (result.suspended || result.demoted) loadSession();
+    } catch (e) { toast(e.message, "bad"); }
+  });
+}
+
+/* ------------------------------------------------------------------ cart */
+
+function paintCartCount() {
+  const count = state.cart ? state.cart.item_count : 0;
+  $("#cart-count").textContent = count;
+  $("#cart-btn").classList.toggle("has", count > 0);
+}
+
+async function loadCart() {
+  state.cart = await api("/cart");
+  paintCartCount();
+  return state.cart;
+}
+
+async function openCart() {
+  try { await loadCart(); } catch (e) { toast(e.message, "bad"); return; }
+  paintCart();
+  $("#cart-sheet").hidden = false;
+}
+
+function paintCart() {
+  const cart = state.cart;
+  const body = $("#cart-body");
+
+  if (!cart || !cart.lines.length) {
+    body.innerHTML = `<p class="empty">Your cart is empty. The shelf is that way.</p>`;
+    return;
+  }
+
+  body.innerHTML = `
+    <div class="cart-lines">
+      ${cart.lines.map((l) => `
+        <div class="cart-line">
+          ${l.cover_url ? `<img src="${esc(l.cover_url)}" alt="">` : `<span class="bought-blank"></span>`}
+          <span class="cart-t">
+            <b>${esc(l.title)}</b><i>${esc(l.author)}</i>
+            ${!l.enough_stock ? `<em class="warn-text">Only ${l.in_stock} left</em>` : ""}
+          </span>
+          <input class="cart-qty" type="number" min="0" max="99"
+                 value="${l.quantity}" data-qty="${l.book_id}"
+                 aria-label="Quantity of ${esc(l.title)}">
+          <span class="cart-p">${money(l.line_total)}</span>
+          <button class="cart-x" data-remove="${l.book_id}" aria-label="Remove">&times;</button>
+        </div>`).join("")}
+    </div>
+
+    <dl class="totals">
+      <div><dt>Subtotal</dt><dd>${money(Number(cart.subtotal) + Number(cart.discount))}</dd></div>
+      ${Number(cart.discount) > 0
+        ? `<div class="good"><dt>VIP discount</dt><dd>−${money(cart.discount)}</dd></div>` : ""}
+      <div class="total"><dt>Total</dt><dd>${money(cart.total)}</dd></div>
+      <div><dt>Your balance</dt><dd>${money(cart.balance)}</dd></div>
+    </dl>
+
+    ${cart.affordable ? "" :
+      `<p class="note bad">Your balance will not cover this. Checking out anyway
+        is refused <b>and</b> costs a $1 fine.</p>`}
+
+    <button class="btn btn-solid btn-wide" id="checkout-btn">
+      Check out · ${money(cart.total)}
+    </button>`;
+
+  $$("[data-qty]", body).forEach((input) => input.addEventListener("change", async () => {
+    try {
+      state.cart = await api("/cart/items/" + input.dataset.qty, {
+        method: "PATCH", body: { quantity: Number(input.value) },
+      });
+      paintCart(); paintCartCount();
+    } catch (e) { toast(e.message, "bad"); paintCart(); }
+  }));
+
+  $$("[data-remove]", body).forEach((b) => b.addEventListener("click", async () => {
+    try {
+      state.cart = await api("/cart/items/" + b.dataset.remove, { method: "DELETE" });
+      paintCart(); paintCartCount();
+    } catch (e) { toast(e.message, "bad"); }
+  }));
+
+  $("#checkout-btn").addEventListener("click", checkout);
+}
+
+async function checkout() {
+  const button = $("#checkout-btn");
+  button.disabled = true;
+  button.textContent = "Placing your order…";
+  try {
+    const result = await api("/checkout", { method: "POST" });
+    toast(result.message, result.ok ? "good" : "bad");
+    await Promise.all([loadSession(), loadCart(), loadShelf()]);
+    paintCart();
+    if (result.ok) {
+      $("#cart-sheet").hidden = true;
+      show("orders");
     }
-  });
-}
-
-/* ---------------------------------------------------------------- search */
-
-async function runSearch(q) {
-  const hits = await api("/search?q=" + encodeURIComponent(q));
-  $("#search-count").hidden = false;
-  $("#search-count").textContent =
-    `${hits.length} result${hits.length === 1 ? "" : "s"} for “${q}”`;
-  const grid = $("#search-results");
-  grid.replaceChildren();
-  hits.forEach((h) => grid.appendChild(
-    card(h.book, `matched ${h.matched.slice(0, 4).join(", ")} in ${h.where}`)));
-}
-
-async function runImageSearch(file) {
-  $("#drop-note").textContent = "Matching " + file.name + "…";
-  const form = new FormData();
-  form.append("file", file);
-  try {
-    const hits = await api("/search/image", { method: "POST", body: form, raw: true });
-    $("#drop-note").textContent = `Matched against our cover index using ${file.name}`;
-    $("#search-count").hidden = false;
-    $("#search-count").textContent =
-      `${hits.length} visual match${hits.length === 1 ? "" : "es"}`;
-    const grid = $("#search-results");
-    grid.replaceChildren();
-    hits.forEach((h) => grid.appendChild(
-      card(h.book, `${Math.round(h.similarity * 100)}% match on the ${h.kind}`)));
   } catch (e) {
-    $("#drop-note").textContent = e.message;
+    toast(e.message, "bad");
+  } finally {
+    button.disabled = false;
   }
 }
 
-/* ------------------------------------------------------------------ chat */
+/* ---------------------------------------------------------------- orders */
 
-const TAG = {
-  "store data": "tag-store", "via RAG": "tag-rag", "via LLM": "tag-llm",
-  "access denied": "tag-deny", "unavailable": "tag-err",
-};
+async function paintOrders() {
+  const list = $("#orders-list");
+  list.innerHTML = `<p class="empty">Loading…</p>`;
+  const orders = await api("/orders");
 
-function paintSuggestions() {
-  const role = (state.session || {}).role || "VS";
-  const base = ["What are your opening hours?", "Do you ship internationally?",
-                "What categories do you carry?"];
-  const extra = {
-    VS: ["What is the finance report?"],
-    RC: ["What is my balance?", "What should I read next?"],
-    VC: ["What is on the to-order list?", "What is my discount?"],
-    SU: ["Show the finance report", "How many users are there?", "What is low on stock?"],
-  }[role] || [];
-
-  const box = $("#suggests");
-  box.replaceChildren();
-  [...base, ...extra].slice(0, 5).forEach((text) => {
-    const b = document.createElement("button");
-    b.textContent = text;
-    b.addEventListener("click", () => { $("#question").value = text; ask(); });
-    box.appendChild(b);
-  });
-}
-
-function looksTabular(text) {
-  const lines = text.split("\n");
-  if (lines.length < 3) return false;
-  return lines.filter((l) => l.trim().includes("  ")).length >= lines.length / 2;
-}
-
-async function ask() {
-  const q = $("#question").value.trim();
-  if (!q) return;
-  $("#question").value = "";
-  $("#ask-btn").disabled = true;
-
-  const thread = $("#thread");
-  const turn = document.createElement("div");
-  turn.className = "turn";
-  turn.innerHTML = `<div class="turn-q">${esc(q)}</div><div class="turn-a">…</div>`;
-  thread.appendChild(turn);
-  thread.scrollTop = thread.scrollHeight;
-
-  try {
-    const a = await api("/chat", { method: "POST", body: { question: q } });
-    turn.innerHTML =
-      `<div class="turn-q">${esc(q)}</div>` +
-      `<div><span class="tag ${TAG[a.source] || "tag-store"}">${esc(a.source)}</span></div>` +
-      `<div class="turn-a${looksTabular(a.text) ? " mono" : ""}">${esc(a.text)}</div>` +
-      (a.citations.length
-        ? `<div class="turn-cite">Sources: ${esc(a.citations.join(", "))}</div>` : "");
-  } catch (e) {
-    turn.innerHTML = `<div class="turn-q">${esc(q)}</div>
-      <div class="turn-a">${esc(e.message)}</div>`;
+  if (!orders.length) {
+    list.innerHTML = `<p class="empty">No orders yet.</p>`;
+    return;
   }
-  $("#ask-btn").disabled = false;
-  thread.scrollTop = thread.scrollHeight;
+
+  list.innerHTML = orders.map((o) => `
+    <article class="order">
+      <header>
+        <b>Order #${o.id}</b>
+        <span class="order-when">${esc((o.placed_at || "").slice(0, 10))}</span>
+        <span class="order-total">${money(o.total)}</span>
+      </header>
+      <div class="order-lines">
+        ${o.items.map((i) => `
+          <button class="order-line" data-book="${i.book_id}">
+            ${i.cover_url ? `<img src="${esc(i.cover_url)}" alt="">` : ""}
+            <span><b>${esc(i.title)}</b><i>${i.quantity} × ${money(i.unit_price)}</i></span>
+            <span class="num">${money(i.line_total)}</span>
+          </button>`).join("")}
+      </div>
+      ${Number(o.discount) > 0
+        ? `<p class="order-note good">VIP discount of ${money(o.discount)} applied
+             (${(Number(o.discount_rate) * 100).toFixed(0)}%).</p>` : ""}
+      ${o.payments.map((p) => `
+        <p class="order-note">Paid ${money(p.amount)} from your balance ·
+          ${esc(p.status)} · ref ${esc(p.reference)}</p>`).join("")}
+    </article>`).join("");
 }
 
 /* --------------------------------------------------------------- account */
 
-async function paintPurchases() {
-  const box = $("#purchases");
-  const rows = await api("/account/purchases");
-  if (!rows.length) {
-    box.innerHTML = `<p class="empty">Nothing bought yet. The shelf is that way.</p>`;
-    return;
-  }
-  box.innerHTML = rows.map((r) => `
-    <button class="bought" data-book="${esc(r.book_id)}">
-      ${r.cover_url
-        ? `<img src="${esc(r.cover_url)}" alt="">`
-        : `<span class="bought-blank" aria-hidden="true"></span>`}
-      <span class="bought-t">
-        <b>${esc(r.title)}</b>
-        <i>${esc(r.author)}</i>
-      </span>
-      <span class="bought-p">${money(r.price_paid)}</span>
-      <span class="bought-d">${esc((r.at || "").slice(0, 10))}</span>
-    </button>`).join("");
-  $$("#purchases .bought").forEach((b) =>
-    b.addEventListener("click", () => openBook(b.dataset.book)));
-}
-
-function paintAccount() {
-  const s = state.session || {};
+async function paintAccount() {
+  const s = state.session;
   if (!s.signed_in) return;
   $("#account-name").textContent = s.display_name || s.username;
-  paintPurchases().catch((e) => {
-    $("#purchases").innerHTML =
-      `<p class="empty">${esc("Could not load your purchases: " + e.message)}</p>`;
-  });
 
   const tiles = [
-    ["Balance", money(s.balance), s.balance < 0 ? "bad" : (s.balance < 1 ? "warn" : "good")],
+    ["Balance", money(s.balance), Number(s.balance) < 0 ? "bad" : (Number(s.balance) < 1 ? "warn" : "good")],
     ["Lifetime spend", money(s.total_spent), ""],
     ["Purchases", s.purchase_count, ""],
     ["Warnings", `${s.warnings} of 2`, s.warnings ? "warn" : ""],
@@ -519,43 +518,286 @@ function paintAccount() {
     $("#vip-note").textContent =
       "You are a VIP: 10% off every purchase. More than two moderation warnings would return you to a registered customer.";
     $("#vip-meters").innerHTML = "";
+  } else {
+    $("#vip-note").textContent =
+      "More than 3 purchases or more than $200.00 spent, whichever comes first.";
+    $("#vip-meters").innerHTML = [
+      ["Purchases", s.purchase_count, 4],
+      ["Spent", s.total_spent, 200.01],
+    ].map(([k, v, target]) => `
+      <div>
+        <div class="meter-k"><span>${k}</span>
+          <span>${k === "Spent" ? money(v) + " of " + money(target) : v + " of " + target}</span></div>
+        <div class="meter-t"><div class="meter-f"
+             style="width:${Math.min(100, (Number(v) / target) * 100)}%"></div></div>
+      </div>`).join("");
+  }
+
+  paintFacePanel().catch(() => {});
+}
+
+async function paintFacePanel() {
+  const panel = $("#face-panel");
+  const status = await api("/biometrics/status");
+
+  if (!status.available) {
+    panel.innerHTML = `<p class="note">${esc(status.message)}</p>`;
     return;
   }
-  $("#vip-note").textContent =
-    "More than 3 purchases or more than $200.00 spent, whichever comes first.";
-  const rows = [
-    ["Purchases", s.purchase_count, 4],
-    ["Spent", s.total_spent, 200.01],
-  ];
-  $("#vip-meters").innerHTML = rows.map(([k, v, target]) => `
-    <div>
-      <div class="meter-k"><span>${k}</span>
-        <span>${k === "Spent" ? money(v) + " of " + money(target) : v + " of " + target}</span></div>
-      <div class="meter-t"><div class="meter-f" style="width:${Math.min(100, (v / target) * 100)}%"></div></div>
-    </div>`).join("");
+
+  panel.innerHTML = `
+    <div class="stats">
+      <div class="stat"><div class="stat-k">Photographs enrolled</div>
+        <div class="stat-v ${status.face_samples ? "good" : ""}">${status.face_samples}</div></div>
+      <div class="stat"><div class="stat-k">Recommended</div>
+        <div class="stat-v">${status.required_samples}</div></div>
+      <div class="stat"><div class="stat-k">Detector</div>
+        <div class="stat-v small">${esc(status.detector)}</div></div>
+    </div>
+    <div class="buy-row">
+      <button class="btn btn-solid" id="enrol-face">
+        ${status.face_samples ? "Add more photographs" : "Enrol my face"}
+      </button>
+      ${status.face_samples
+        ? `<button class="btn btn-ghost" id="forget-face">Delete my face data</button>` : ""}
+    </div>`;
+
+  $("#enrol-face").addEventListener("click", () => openCamera("enrol"));
+  const forget = $("#forget-face");
+  if (forget) forget.addEventListener("click", async () => {
+    if (!confirm("Delete every face photograph for this account?")) return;
+    try {
+      await api("/biometrics/face", { method: "DELETE" });
+      toast("Face data deleted.", "good");
+      paintFacePanel();
+    } catch (e) { toast(e.message, "bad"); }
+  });
+}
+
+/* ---------------------------------------------------------------- camera */
+
+async function openCamera(mode) {
+  state.camera.mode = mode;
+  state.camera.shots = [];
+  $("#camera-msg").textContent = "";
+  $("#camera-title").textContent =
+    mode === "enrol" ? "Enrol your face" : "Sign in with your face";
+  $("#camera-hint").textContent = mode === "enrol"
+    ? "Five photographs, with small changes of angle between them. Face the camera straight on, light in front of you."
+    : "Look at the camera and press Capture.";
+  $("#cam-go").textContent = mode === "enrol" ? "Capture (0 of 5)" : "Capture";
+  $("#camera").hidden = false;
+
+  try {
+    state.camera.stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
+      audio: false,
+    });
+  } catch (e) {
+    $("#camera-msg").textContent =
+      "The browser would not give us the camera. Allow camera access for this " +
+      "site, make sure no other app is using it, and try again. (" + e.name + ")";
+    $("#camera-msg").className = "msg bad";
+    return;
+  }
+
+  const video = $("#cam-video");
+  video.srcObject = state.camera.stream;
+  await video.play().catch(() => {});
+}
+
+function closeCamera() {
+  if (state.camera.stream) {
+    // Releasing every track is what turns the camera light off. Leaving it on
+    // after the dialog closes is alarming, and on some machines it blocks any
+    // other app from opening the camera at all.
+    state.camera.stream.getTracks().forEach((t) => t.stop());
+    state.camera.stream = null;
+  }
+  $("#cam-video").srcObject = null;
+  $("#camera").hidden = true;
+}
+
+function grabFrame() {
+  const video = $("#cam-video");
+  const canvas = $("#cam-canvas");
+  canvas.width = video.videoWidth || 640;
+  canvas.height = video.videoHeight || 480;
+  canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+  return new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+}
+
+async function captureShot() {
+  const button = $("#cam-go");
+  const message = $("#camera-msg");
+
+  if (!state.camera.stream) { message.textContent = "No camera."; return; }
+  button.disabled = true;
+
+  try {
+    const blob = await grabFrame();
+
+    if (state.camera.mode === "identify") {
+      const form = new FormData();
+      form.append("frame", blob, "frame.png");
+      const data = await api("/biometrics/face/login", {
+        method: "POST", body: form, raw: true, retry: false,
+      });
+      storeTokens(data);
+      closeCamera();
+      $("#auth").hidden = true;
+      paintSession();
+      await Promise.all([loadPicks(), loadShelf(), loadCart()]);
+      toast(`Signed in as ${data.session.display_name || data.session.username}.`, "good");
+      return;
+    }
+
+    state.camera.shots.push(blob);
+    button.textContent = `Capture (${state.camera.shots.length} of 5)`;
+    message.className = "msg";
+    message.textContent = `Captured ${state.camera.shots.length}. ` +
+      (state.camera.shots.length < 5 ? "Turn your head slightly and capture again."
+                                     : "Sending…");
+
+    if (state.camera.shots.length >= 5) {
+      const form = new FormData();
+      state.camera.shots.forEach((b, i) => form.append("frames", b, `f${i}.png`));
+      const result = await api("/biometrics/face/enroll", {
+        method: "POST", body: form, raw: true,
+      });
+      message.className = "msg " + (result.ok ? "good" : "bad");
+      message.textContent = result.message;
+      state.camera.shots = [];
+      button.textContent = "Capture (0 of 5)";
+      if (result.ok) { closeCamera(); paintFacePanel(); loadSession(); }
+    }
+  } catch (e) {
+    message.className = "msg bad";
+    message.textContent = e.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+/* ------------------------------------------------------------ shelf scan */
+
+async function runShelfScan(file) {
+  const note = $("#scan-note");
+  const out = $("#scan-result");
+  note.textContent = "Scanning " + file.name + "…";
+  out.innerHTML = `<p class="empty">Segmenting the photo and matching covers…</p>`;
+
+  const form = new FormData();
+  form.append("photo", file, file.name);
+
+  try {
+    const result = await api("/shelf-scan", { method: "POST", body: form, raw: true });
+    note.textContent = "";
+
+    if (!result.ok) {
+      out.innerHTML = `<p class="note bad">${esc(result.message)}</p>`;
+      return;
+    }
+
+    out.innerHTML = `
+      <h2>What the scanner saw</h2>
+      <p class="muted">${esc(result.message)}
+        Segmentation: ${esc(result.segmentation || "built-in two-stage")}.</p>
+      ${result.annotated_url
+        ? `<img class="scan-shot" src="${esc(result.annotated_url)}"
+                alt="The shelf photo with detected books boxed">` : ""}
+
+      <h3>Recognised</h3>
+      <div class="grid">${result.matches.filter((m) => m.recognised).map((m) =>
+        card(m.book, `${Math.round(m.confidence * 100)}% confident`)).join("")
+        || `<p class="muted">Nothing matched our catalogue.</p>`}</div>
+
+      ${result.taste_profile.length ? `
+        <h3>Your taste, from this shelf</h3>
+        <p class="lede">${result.taste_profile.map(esc).join(" · ")}</p>` : ""}
+
+      ${result.recommendations.length ? `
+        <h3>You might like</h3>
+        <div class="grid">${result.recommendations.map((b) => card(b)).join("")}</div>` : ""}`;
+  } catch (e) {
+    note.textContent = "";
+    out.innerHTML = `<p class="note bad">${esc(e.message)}</p>`;
+  }
+}
+
+/* ------------------------------------------------------------------ chat */
+
+const TAG = {
+  "store data": "tag-store", "via RAG": "tag-rag", "via LLM": "tag-llm",
+  "access denied": "tag-deny", "unavailable": "tag-deny",
+};
+
+function paintSuggestions() {
+  const common = ["What are your opening hours?", "Do you ship internationally?",
+                  "What categories do you carry?"];
+  const extra = {
+    RC: ["What is my balance?", "What should I read next?"],
+    VC: ["What is my discount?", "What is on the to-order list?"],
+    SU: ["What is the finance report?", "Which accounts are suspended?"],
+  }[state.session.role] || [];
+
+  $("#suggests").innerHTML = common.concat(extra)
+    .map((q) => `<button class="chip" data-ask="${esc(q)}">${esc(q)}</button>`).join("");
+  $$("#suggests [data-ask]").forEach((b) => b.addEventListener("click", () => {
+    $("#question").value = b.dataset.ask;
+    ask();
+  }));
+}
+
+async function ask() {
+  const input = $("#question");
+  const question = input.value.trim();
+  if (!question) return;
+
+  const thread = $("#thread");
+  const block = document.createElement("div");
+  block.className = "turn";
+  block.innerHTML = `<p class="you"><span>You</span> <b>${esc(question)}</b></p>
+                     <p class="thinking">Thinking…</p>`;
+  thread.appendChild(block);
+  input.value = "";
+  thread.scrollTop = thread.scrollHeight;
+
+  try {
+    const answer = await api("/chat", { method: "POST", body: { question } });
+    block.innerHTML = `
+      <p class="you"><span>You</span> <b>${esc(question)}</b></p>
+      <p><span class="tag ${TAG[answer.source] || "tag-store"}">${esc(answer.source)}</span></p>
+      <div class="answer">${esc(answer.text).replace(/\n/g, "<br>")}</div>
+      ${answer.citations.length
+        ? `<p class="cites">Sources: ${answer.citations.map(esc).join(", ")}</p>` : ""}`;
+  } catch (e) {
+    block.innerHTML = `<p class="you"><span>You</span> <b>${esc(question)}</b></p>
+                       <p class="note bad">${esc(e.message)}</p>`;
+  }
+  thread.scrollTop = thread.scrollHeight;
 }
 
 /* ----------------------------------------------------------------- admin */
 
-/* Renders whatever columns a report happens to have, so adding a query in
-   analytics.py needs no change here. The column *name* is the only hint
-   available about what a number means, so formatting keys off that. */
-/* `average(?!$)` so average_order is money but plain_average and
-   weighted_average stay star ratings. */
-const MONEY_COLS  = /revenue|sales|fines|refunds|spent|spend|price|balance|value|total|average(?!$)/i;
-const PCT_COLS    = /^pct_|_pct$|percent/i;
-const COUNT_WORDS = { vip: "VIP", sql: "SQL", pct: "%", id: "ID" };
-
 function sqlHeading(column) {
-  return column.split("_")
-    .map((w) => COUNT_WORDS[w.toLowerCase()] || w)
-    .join(" ")
+  const words = { vip: "VIP", sql: "SQL", pct: "%", id: "ID" };
+  return column.split("_").map((w) => words[w.toLowerCase()] || w).join(" ")
     .replace(/^./, (m) => m.toUpperCase());
 }
 
+const MONEY_COLS = /revenue|sales|fines|refunds|spent|spend|price|balance|value|total|average(?!$)/i;
+const PCT_COLS = /^pct_|_pct$|percent/i;
+
 function sqlCell(column, value) {
   if (value === null || value === undefined) return "—";
-  if (typeof value !== "number") return esc(value);
+  if (typeof value !== "number") {
+    const asNumber = Number(value);
+    if (value !== "" && !Number.isNaN(asNumber) && MONEY_COLS.test(column)) {
+      return money(asNumber);
+    }
+    return esc(value);
+  }
   if (PCT_COLS.test(column)) return value.toFixed(1) + "%";
   if (MONEY_COLS.test(column)) return money(value);
   return Number.isInteger(value) ? String(value) : value.toFixed(2);
@@ -564,9 +806,8 @@ function sqlCell(column, value) {
 function sqlTable(rows, empty) {
   if (!rows || !rows.length) return `<p class="empty">${esc(empty)}</p>`;
   const cols = Object.keys(rows[0]);
-  const numeric = (c) => typeof rows[0][c] === "number";
-  /* showAdmin wraps every table in a sideways scroller after injection, so
-     nothing here needs to think about narrow screens. */
+  const numeric = (c) => MONEY_COLS.test(c) || PCT_COLS.test(c)
+    || typeof rows[0][c] === "number";
   return `<table class="table"><thead><tr>${
     cols.map((c) => `<th class="${numeric(c) ? "num" : ""}">${esc(sqlHeading(c))}</th>`).join("")
   }</tr></thead><tbody>${
@@ -576,6 +817,24 @@ function sqlTable(rows, empty) {
 }
 
 const adminPanels = {
+  async finance() {
+    const f = await api("/admin/finance");
+    const tiles = [
+      ["Total revenue", money(f.total_revenue), "good"],
+      ["Sales", money(f.revenue_sales), ""],
+      ["Fines", money(f.revenue_fines), Number(f.revenue_fines) ? "warn" : ""],
+      ["Paid orders", f.order_count, ""],
+      ["Average order", money(f.average_order), ""],
+      ["Customer balances", money(f.customer_liability), ""],
+      ["Stock value", money(f.inventory_value), ""],
+      ["Suspended", f.suspended_count, f.suspended_count ? "warn" : ""],
+    ];
+    return `<div class="stats">${tiles.map(([k, v, c]) =>
+      `<div class="stat"><div class="stat-k">${k}</div><div class="stat-v ${c}">${esc(v)}</div></div>`).join("")}</div>
+      <h2>Best sellers</h2>${sqlTable(f.top_books, "Nothing sold yet.")}
+      <h2>Revenue by category</h2>${sqlTable(f.revenue_by_category, "No sales yet.")}`;
+  },
+
   async reports() {
     const r = await api("/admin/analytics");
     const sections = [
@@ -585,111 +844,75 @@ const adminPanels = {
        "A LEFT JOIN, so a category that has sold nothing still shows up."],
       ["Best sellers", "best_sellers",
        "RANK() partitioned by category, so each shelf has its own leader."],
-      ["Order lists", "order_lists",
-       "The weighted average from spec item 7, as a view the reports share."],
       ["Customers by lifetime spend", "customer_value",
-       "How far each customer is from the next tier."],
+       "Derived from the orders table, not a counter on the account."],
       ["Moderation", "moderation", "Taboo-word activity per customer."],
       ["Browsed but never bought", "dead_stock", "The shelf's quiet failures."],
     ];
-    return `<p class="lede">
-        Computed in SQL over a throwaway SQLite projection of the text files,
-        rebuilt on every request. The files in <code>data/</code> stay the
-        system of record — nothing here is ever written back.
-      </p>` +
+    return `<p class="lede">Computed in SQL against the live schema — CTEs,
+      window functions and deliberate outer joins.</p>` +
       sections.map(([title, key, note]) => `
         <h2>${esc(title)}</h2>
         <p class="query-note">${esc(note)}</p>
         ${sqlTable(r[key], "Nothing to report yet.")}`).join("");
   },
 
-  async finance() {
-    const f = await api("/admin/finance");
-    const tiles = [
-      ["Total revenue", money(f.total_revenue), "good"],
-      ["Sales", money(f.revenue_sales), ""],
-      ["Fines", money(f.revenue_fines), f.revenue_fines ? "warn" : ""],
-      ["Orders", f.purchase_count, ""],
-      ["Average order", money(f.average_order), ""],
-      ["Customer balances", money(f.customer_liability), ""],
-    ];
-    return `<div class="stats">${tiles.map(([k, v, c]) =>
-      `<div class="stat"><div class="stat-k">${k}</div><div class="stat-v ${c}">${esc(v)}</div></div>`).join("")}</div>
-      <h2>Best sellers</h2>
-      <table class="table"><thead><tr><th>Title</th><th class="num">Units</th><th class="num">Revenue</th></tr></thead>
-      <tbody>${f.top_books.map((b) =>
-        `<tr><td>${esc(b.title)}</td><td class="num">${b.units}</td><td class="num">${money(b.revenue)}</td></tr>`).join("")
-        || `<tr><td colspan="3">Nothing sold yet.</td></tr>`}</tbody></table>
-      <h2>Revenue by category</h2>
-      <table class="table"><thead><tr><th>Category</th><th class="num">Revenue</th></tr></thead>
-      <tbody>${f.revenue_by_category.map((c) =>
-        `<tr><td>${esc(c.category)}</td><td class="num">${money(c.revenue)}</td></tr>`).join("")
-        || `<tr><td colspan="2">Nothing sold yet.</td></tr>`}</tbody></table>`;
-  },
-
   async orders() {
-    const l = await api("/admin/order-lists");
-    const section = (title, rows, blurb) => `
-      <h2>${title} <span style="font-family:var(--sans);font-size:.85rem;color:var(--on-ink-dim)">${rows.length}</span></h2>
-      <p class="lede">${blurb}</p>
-      ${rows.map((r) => `<div class="listrow" style="--spine:${colour(r.book.category)}">
-         <b>${esc(r.book.title)}</b>
-         <span style="color:var(--on-ink-dim)">${esc(r.book.author)}</span>
-         <span class="num">${r.average.toFixed(2)} weighted · ${r.plain_average.toFixed(2)} plain
-           · ${r.count} ratings · stock ${r.book.stock}</span>
-       </div>`).join("") || `<p class="empty">Nothing on this list.</p>`}`;
-    return section("To order", l.to_order,
-             "Keep these in stock — customers rate them highly.") +
-           section("No order", l.no_order,
-             "Stop reordering these. They are hidden from personalised recommendations automatically.");
+    const lists = await api("/admin/order-lists");
+    return `
+      <h2>To order</h2>
+      <p class="query-note">More than 3 ratings, weighted average above 4.</p>
+      ${sqlTable(lists.to_order, "Nothing qualifies yet.")}
+      <h2>Do not order</h2>
+      <p class="query-note">More than 3 ratings, weighted average below 2.</p>
+      ${sqlTable(lists.no_order, "Nothing qualifies yet.")}`;
   },
 
   async accounts() {
     const rows = await api("/admin/accounts");
-    return `<table class="table">
-      <thead><tr><th>ID</th><th>Username</th><th>Role</th>
-      <th class="num">Balance</th><th class="num">Spent</th><th class="num">Warnings</th>
-      <th>State</th><th></th></tr></thead>
-      <tbody>${rows.map((u) => `<tr>
-        <td>${esc(u.user_id)}</td><td>${esc(u.username)}</td><td>${esc(u.role_name)}</td>
-        <td class="num">${money(u.balance)}</td>
-        <td class="num">${money(u.total_spent)}</td>
-        <td class="num">${u.warnings}</td>
-        <td>${u.suspended ? `<span style="color:#ff9d94">suspended: ${esc(u.suspend_reason)}</span>` : "active"}</td>
-        <td><button class="btn btn-ghost" data-deposit="${esc(u.user_id)}">
-          ${u.suspended ? "Reopen" : "Deposit"}</button></td>
-      </tr>`).join("")}</tbody></table>`;
+    return `<table class="table"><thead><tr>
+        <th>Username</th><th>Name</th><th>Role</th><th class="num">Balance</th>
+        <th class="num">Spent</th><th class="num">Warnings</th><th>State</th><th></th>
+      </tr></thead><tbody>${rows.map((a) => `
+        <tr>
+          <td>${esc(a.username)}</td><td>${esc(a.display_name)}</td>
+          <td>${esc(a.role_name)}</td>
+          <td class="num ${Number(a.balance) < 0 ? "bad" : ""}">${money(a.balance)}</td>
+          <td class="num">${money(a.total_spent)}</td>
+          <td class="num">${a.warnings}</td>
+          <td>${a.suspended ? `<span class="badge bad">suspended</span>` : "active"}</td>
+          <td class="num">
+            <button class="btn btn-ghost btn-small" data-deposit="${a.id}">Deposit</button>
+            ${a.suspended ? `<button class="btn btn-ghost btn-small" data-reopen="${a.id}">Reopen</button>` : ""}
+          </td>
+        </tr>`).join("")}</tbody></table>`;
   },
 
   async taboo() {
-    const t = await api("/admin/taboo");
-    return `<p class="lede">Any listed word is masked wherever it appears.
-      A comment with more than three is blocked outright and its author warned.</p>
-      <form id="taboo-form" style="display:flex;gap:8px;max-width:420px;margin-bottom:16px">
-        <input id="taboo-word" placeholder="Add a word"
-               style="flex:1;font:inherit;padding:9px 12px;background:var(--ink-deep);
-                      color:var(--on-ink);border:1px solid var(--rule);border-radius:3px">
+    const words = await api("/admin/taboo");
+    return `
+      <p class="lede">A comment containing more than three of these is blocked
+        and earns the customer a warning.</p>
+      <div class="chips">${words.map((w) =>
+        `<button class="chip" data-untaboo="${esc(w)}">${esc(w)} ×</button>`).join("")}</div>
+      <form class="search" id="taboo-form">
+        <input id="taboo-word" placeholder="Add a word" aria-label="New taboo word">
         <button class="btn btn-solid">Add</button>
-      </form>
-      <div class="chips">${t.words.map((w) =>
-        `<button class="chip" data-taboo="${esc(w)}">${esc(w)} ✕</button>`).join("")
-        || `<span class="empty">The list is empty.</span>`}</div>`;
+      </form>`;
   },
 
   async newbook() {
-    return `<form id="book-form" class="stack" style="max-width:520px">
-      <label>Title <input id="nb-title" required></label>
-      <label>Author <input id="nb-author" required></label>
-      <label>Category
-        <select id="nb-cat">${Object.keys(CATEGORY_COLOUR).map((c) =>
-          `<option>${c}</option>`).join("")}</select></label>
-      <label>Year <input id="nb-year" type="number" value="2000"></label>
-      <label>Price <input id="nb-price" type="number" step="0.01" value="12.00" required></label>
-      <label>Stock <input id="nb-stock" type="number" value="10"></label>
-      <label>Description <textarea id="nb-desc"></textarea></label>
-      <div><button class="btn btn-solid">Add to the catalogue</button></div>
-      <p class="msg" id="nb-msg"></p>
-    </form>`;
+    return `
+      <form class="stack narrow" id="newbook-form">
+        <label>Title <input id="nb-title" required></label>
+        <label>Author <input id="nb-author" required></label>
+        <label>Category <input id="nb-category" required placeholder="literature"></label>
+        <label>Year <input id="nb-year" type="number" min="0" max="2200"></label>
+        <label>Price <input id="nb-price" type="number" min="0" step="0.01" required></label>
+        <label>Stock <input id="nb-stock" type="number" min="0" value="5"></label>
+        <label>Description <textarea id="nb-desc"></textarea></label>
+        <button class="btn btn-solid">Add to the catalogue</button>
+      </form>`;
   },
 };
 
@@ -703,8 +926,6 @@ async function showAdmin(panel) {
     return;
   }
 
-  /* Every panel's tables get the sideways scroll, so a panel author never has
-     to remember the wrapper and no table can push the page out on a phone. */
   $$("table.table", body).forEach((table) => {
     if (table.parentElement.classList.contains("table-scroll")) return;
     const scroller = document.createElement("div");
@@ -719,67 +940,63 @@ async function showAdmin(panel) {
   $$("[data-deposit]", body).forEach((b) => b.addEventListener("click", async () => {
     const amount = Number(prompt("Amount to credit:", "20"));
     if (!amount || amount <= 0) return;
-    const id = b.dataset.deposit;
-    const suspended = b.textContent.trim() === "Reopen";
     try {
-      await api(`/admin/accounts/${id}/${suspended ? "reopen" : "deposit"}`,
-                { method: "POST", body: { amount } });
-      toast(suspended ? "Account reopened." : "Deposit credited.", "good");
+      await api(`/admin/accounts/${b.dataset.deposit}/deposit`,
+                { method: "POST", body: { amount: String(amount) } });
+      toast("Deposited.", "good");
       showAdmin("accounts");
     } catch (e) { toast(e.message, "bad"); }
   }));
 
-  $("#taboo-form", body)?.addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    const word = $("#taboo-word").value.trim();
-    if (!word) return;
-    await api("/admin/taboo", { method: "POST", body: { word } });
-    showAdmin("taboo");
-  });
-  $$("[data-taboo]", body).forEach((b) => b.addEventListener("click", async () => {
-    await api("/admin/taboo/" + encodeURIComponent(b.dataset.taboo), { method: "DELETE" });
-    showAdmin("taboo");
+  $$("[data-reopen]", body).forEach((b) => b.addEventListener("click", async () => {
+    const amount = Number(prompt("Deposit to clear the balance:", "20"));
+    try {
+      await api(`/admin/accounts/${b.dataset.reopen}/reopen`,
+                { method: "POST", body: { amount: String(amount || 0.01) } });
+      toast("Account reopened.", "good");
+      showAdmin("accounts");
+    } catch (e) { toast(e.message, "bad"); }
   }));
 
-  $("#book-form", body)?.addEventListener("submit", async (ev) => {
-    ev.preventDefault();
+  $$("[data-untaboo]", body).forEach((b) => b.addEventListener("click", async () => {
     try {
-      const book = await api("/admin/books", { method: "POST", body: {
-        title: $("#nb-title").value, author: $("#nb-author").value,
-        category: $("#nb-cat").value, year: Number($("#nb-year").value || 0),
-        price: Number($("#nb-price").value), stock: Number($("#nb-stock").value || 0),
-        description: $("#nb-desc").value,
-      }});
-      toast(`Added “${book.title}”.`, "good");
-      ev.target.reset();
-      await Promise.all([loadFacets(), loadShelf()]);
-    } catch (e) {
-      $("#nb-msg").textContent = e.message;
-      $("#nb-msg").className = "msg bad";
-    }
+      await api("/admin/taboo/" + encodeURIComponent(b.dataset.untaboo),
+                { method: "DELETE" });
+      showAdmin("taboo");
+    } catch (e) { toast(e.message, "bad"); }
+  }));
+
+  const tabooForm = $("#taboo-form", body);
+  if (tabooForm) tabooForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const word = $("#taboo-word").value.trim();
+    if (!word) return;
+    try {
+      await api("/admin/taboo", { method: "POST", body: { word } });
+      showAdmin("taboo");
+    } catch (err) { toast(err.message, "bad"); }
   });
-}
 
-/* ------------------------------------------------------------------ auth */
-
-async function signOut() {
-  try { await api("/auth/logout", { method: "POST" }); } catch {}
-  state.token = null;
-  localStorage.removeItem("inkwell.token");
-  await refreshSession();
-  await Promise.all([loadPicks(), loadShelf()]);
-  show("shelf");
-  toast("Signed out. You are browsing as a visitor.");
-}
-
-async function signIn(username, password) {
-  const r = await api("/auth/login", { method: "POST", body: { username, password } });
-  state.token = r.token;
-  localStorage.setItem("inkwell.token", r.token);
-  await refreshSession();
-  await Promise.all([loadPicks(), loadShelf()]);
-  $("#auth").hidden = true;
-  toast(`Signed in as ${r.session.display_name || r.session.username}.`, "good");
+  const bookForm = $("#newbook-form", body);
+  if (bookForm) bookForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    try {
+      await api("/admin/books", {
+        method: "POST",
+        body: {
+          title: $("#nb-title").value, author: $("#nb-author").value,
+          category: $("#nb-category").value.toLowerCase(),
+          year: Number($("#nb-year").value) || null,
+          price: String($("#nb-price").value),
+          stock: Number($("#nb-stock").value) || 0,
+          description: $("#nb-desc").value,
+        },
+      });
+      toast("Added to the catalogue.", "good");
+      bookForm.reset();
+      loadShelf(); loadFacets();
+    } catch (err) { toast(err.message, "bad"); }
+  });
 }
 
 /* ----------------------------------------------------------------- views */
@@ -788,8 +1005,37 @@ function show(view) {
   $$(".view").forEach((v) => v.classList.toggle("on", v.dataset.view === view));
   $$(".nav button").forEach((b) => b.classList.toggle("on", b.dataset.view === view));
   if (view === "account") paintAccount();
+  if (view === "orders") paintOrders().catch((e) => toast(e.message, "bad"));
   if (view === "admin") showAdmin("finance");
   window.scrollTo(0, 0);
+}
+
+/* ------------------------------------------------------------------ auth */
+
+async function signIn(username, password) {
+  const data = await api("/auth/login", {
+    method: "POST", body: { username, password }, retry: false,
+  });
+  storeTokens(data);
+  paintSession();
+  await Promise.all([loadPicks(), loadShelf(), loadCart()]);
+  $("#auth").hidden = true;
+  toast(`Signed in as ${data.session.display_name || data.session.username}.`, "good");
+}
+
+async function signOut() {
+  try {
+    if (state.refresh) {
+      await api("/auth/logout", { method: "POST",
+                                  body: { refresh_token: state.refresh } });
+    }
+  } catch { /* signing out must never fail visibly */ }
+  clearTokens();
+  paintSession();
+  paintCartCount();
+  await Promise.all([loadPicks(), loadShelf()]);
+  show("shelf");
+  toast("Signed out. You are browsing as a visitor.");
 }
 
 /* ------------------------------------------------------------------ wire */
@@ -799,32 +1045,34 @@ function wire() {
     b.addEventListener("click", () => show(b.dataset.view)));
   $("#home-btn").addEventListener("click", () => show("shelf"));
 
-  $$(".segmented [data-axis]").forEach((b) => b.addEventListener("click", () => {
-    $$(".segmented [data-axis]").forEach((x) =>
-      x.setAttribute("aria-selected", String(x === b)));
-    state.axis = b.dataset.axis;
-    state.facet = null;
-    paintFacets();
-    loadShelf();
-  }));
-
-  $$("[data-panel]").forEach((b) => b.addEventListener("click", () => {
-    $$("[data-panel]").forEach((x) => x.setAttribute("aria-selected", String(x === b)));
-    showAdmin(b.dataset.panel);
-  }));
+  document.addEventListener("click", (e) => {
+    const target = e.target.closest("[data-book]");
+    if (target) openBook(target.dataset.book).catch((x) => toast(x.message, "bad"));
+  });
 
   $$("[data-close]").forEach((b) =>
     b.addEventListener("click", () => { $("#sheet").hidden = true; }));
   $$("[data-close-auth]").forEach((b) =>
     b.addEventListener("click", () => { $("#auth").hidden = true; }));
+  $$("[data-close-cart]").forEach((b) =>
+    b.addEventListener("click", () => { $("#cart-sheet").hidden = true; }));
+  $$("[data-close-camera]").forEach((b) =>
+    b.addEventListener("click", closeCamera));
+
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") { $("#sheet").hidden = true; $("#auth").hidden = true; }
+    if (e.key !== "Escape") return;
+    $("#sheet").hidden = true;
+    $("#auth").hidden = true;
+    $("#cart-sheet").hidden = true;
+    if (!$("#camera").hidden) closeCamera();
   });
 
   $("#auth-btn").addEventListener("click", () => {
-    if (state.session && state.session.signed_in) signOut();
+    if (state.session.signed_in) signOut();
     else { $("#auth").hidden = false; $("#li-user").focus(); }
   });
+
+  $("#cart-btn").addEventListener("click", () => openCart());
 
   async function attemptSignIn(username, password) {
     try {
@@ -842,7 +1090,7 @@ function wire() {
     attemptSignIn($("#li-user").value.trim(), $("#li-pass").value);
   });
 
-  /* A demo row fills the form *and* goes, so someone trying the shop out can
+  /* A demo row fills the form and goes, so someone trying the shop out can
      switch tiers in one click instead of two. */
   $$("#demo-list button").forEach((b) => b.addEventListener("click", () => {
     $("#li-user").value = b.dataset.u;
@@ -850,49 +1098,119 @@ function wire() {
     attemptSignIn(b.dataset.u, b.dataset.p);
   }));
 
+  $("#face-login-btn").addEventListener("click", () => openCamera("identify"));
+  $("#cam-go").addEventListener("click", captureShot);
+
   $("#reg-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     try {
-      const r = await api("/auth/register", { method: "POST", body: {
-        username: $("#rg-user").value.trim(),
-        password: $("#rg-pass").value,
-        display_name: $("#rg-name").value.trim(),
-        opening_deposit: Number($("#rg-dep").value || 0),
-      }});
-      state.token = r.token;
-      localStorage.setItem("inkwell.token", r.token);
-      await refreshSession();
-      await Promise.all([loadPicks(), loadShelf()]);
+      const data = await api("/auth/register", {
+        method: "POST", retry: false,
+        body: {
+          username: $("#rg-user").value.trim(),
+          password: $("#rg-pass").value,
+          display_name: $("#rg-name").value.trim(),
+          opening_deposit: String(Number($("#rg-dep").value) || 0),
+        },
+      });
+      storeTokens(data);
+      paintSession();
+      await Promise.all([loadPicks(), loadShelf(), loadCart()]);
       $("#auth").hidden = true;
-      toast("Account created. Welcome.", "good");
+      toast("Account created. Enrol your face from your account page.", "good");
+      show("account");
     } catch (err) {
       $("#reg-msg").textContent = err.message;
       $("#reg-msg").className = "msg bad";
     }
   });
 
-  $("#search-form").addEventListener("submit", (e) => {
+  $$("[data-axis]").forEach((b) => b.addEventListener("click", () => {
+    $$("[data-axis]").forEach((x) => x.setAttribute("aria-selected", String(x === b)));
+    state.filter = { axis: b.dataset.axis, value: null };
+    state.page.offset = 0;
+    paintFacets();
+    loadShelf();
+  }));
+
+  $("#facets").addEventListener("click", (e) => {
+    const chip = e.target.closest("[data-facet]");
+    if (!chip) return;
+    state.filter.value = state.filter.value === chip.dataset.facet
+      ? null : chip.dataset.facet;
+    state.page.offset = 0;
+    paintFacets();
+    loadShelf();
+  });
+
+  $("#page-prev").addEventListener("click", () => {
+    state.page.offset = Math.max(0, state.page.offset - state.page.limit);
+    loadShelf();
+  });
+  $("#page-next").addEventListener("click", () => {
+    state.page.offset += state.page.limit;
+    loadShelf();
+  });
+
+  $("#search-form").addEventListener("submit", async (e) => {
     e.preventDefault();
     const q = $("#q").value.trim();
-    if (q) runSearch(q);
+    if (!q) return;
+    try {
+      const hits = await api("/search?q=" + encodeURIComponent(q));
+      $("#search-count").hidden = false;
+      $("#search-count").textContent =
+        `${hits.length} result${hits.length === 1 ? "" : "s"} for “${q}”`;
+      $("#search-results").innerHTML = hits.map((h) =>
+        card(h.book, `matched ${h.matched.slice(0, 4).join(", ")} in ${h.where}`)).join("")
+        || `<p class="empty">Nothing matched. Try an author or a title.</p>`;
+    } catch (err) { toast(err.message, "bad"); }
   });
 
-  const drop = $("#drop");
-  $("#image-input").addEventListener("change", (e) => {
-    if (e.target.files[0]) runImageSearch(e.target.files[0]);
+  function wireDrop(dropId, inputId, handler) {
+    const drop = $(dropId);
+    $(inputId).addEventListener("change", (e) => {
+      if (e.target.files[0]) handler(e.target.files[0]);
+    });
+    ["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => {
+      e.preventDefault(); drop.classList.add("over");
+    }));
+    ["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => {
+      e.preventDefault(); drop.classList.remove("over");
+    }));
+    drop.addEventListener("drop", (e) => {
+      const file = e.dataTransfer.files[0];
+      if (file) handler(file);
+    });
+  }
+
+  wireDrop("#drop", "#image-input", async (file) => {
+    $("#drop-note").textContent = "Matching " + file.name + "…";
+    const form = new FormData();
+    form.append("file", file);
+    try {
+      const hits = await api("/search/image", { method: "POST", body: form, raw: true });
+      $("#drop-note").textContent = `Matched against our cover index using ${file.name}`;
+      $("#search-count").hidden = false;
+      $("#search-count").textContent =
+        `${hits.length} visual match${hits.length === 1 ? "" : "es"}`;
+      $("#search-results").innerHTML = hits.map((h) =>
+        card(h.book, `${Math.round(h.score * 100)}% similar (${h.matched_on})`)).join("")
+        || `<p class="empty">No cover in our index looks like that.</p>`;
+    } catch (e) {
+      $("#drop-note").textContent = "";
+      toast(e.message, "bad");
+    }
   });
-  ["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => {
-    e.preventDefault(); drop.classList.add("over");
-  }));
-  ["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => {
-    e.preventDefault(); drop.classList.remove("over");
-  }));
-  drop.addEventListener("drop", (e) => {
-    const file = e.dataTransfer.files[0];
-    if (file) runImageSearch(file);
-  });
+
+  wireDrop("#scan-drop", "#scan-input", runShelfScan);
 
   $("#chat-form").addEventListener("submit", (e) => { e.preventDefault(); ask(); });
+
+  $$("[data-panel]").forEach((b) => b.addEventListener("click", () => {
+    $$("[data-panel]").forEach((x) => x.setAttribute("aria-selected", String(x === b)));
+    showAdmin(b.dataset.panel);
+  }));
 }
 
 /* ------------------------------------------------------------------ boot */
@@ -905,7 +1223,7 @@ function wire() {
   });
 
   wire();
-  await refreshSession();
+  await loadSession();
   try {
     await Promise.all([loadFacets(), loadPicks(), loadShelf()]);
   } catch (e) {
