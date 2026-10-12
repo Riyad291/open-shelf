@@ -1,0 +1,22 @@
+# The image seeds its own shop, so the host's data never goes in.
+data/
+models/
+
+__pycache__/
+*.pyc
+*.pyo
+*.tmp
+*.corrupt
+
+.git/
+.github/
+.venv/
+venv/
+
+# Documents and screenshots are for people reading the repository, not for
+# the running service.
+docs/
+*.docx
+*.pdf
+*.png
+!web/**/*.png
