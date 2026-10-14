@@ -11,6 +11,15 @@ fastapi>=0.110
 uvicorn[standard]>=0.27
 pydantic>=2.6
 
+# FastAPI needs this to parse multipart/form-data, which is how every upload
+# in this project arrives: the camera frames, the cover-search image and the
+# Shelf Scan photograph. Nothing here imports it by name -- FastAPI reaches
+# for it when it builds a route that declares File() or Form(), and raises at
+# import time if it is absent. That is why it was missed: a search of this
+# codebase for "multipart" finds nothing, and the machine it was developed on
+# already had it. The app will not start without it.
+python-multipart>=0.0.9
+
 # --- The database ----------------------------------------------------------
 # SQLAlchemy targets the session, not a dialect, so the same code runs on
 # PostgreSQL (the default), MySQL and SQLite. DATABASE_URL picks one.
