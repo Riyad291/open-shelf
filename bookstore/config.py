@@ -32,7 +32,6 @@ BOOK_TEXT_DIR = os.path.join(DATA_DIR, "books")
 FIGURES_DIR = os.path.join(DATA_DIR, "figures")
 BIOMETRICS_DIR = os.path.join(DATA_DIR, "biometrics")
 FACES_DIR = os.path.join(BIOMETRICS_DIR, "faces")
-VOICES_DIR = os.path.join(BIOMETRICS_DIR, "voices")
 
 USERS_PATH = os.path.join(DATA_DIR, "users.json")
 BOOKS_PATH = os.path.join(DATA_DIR, "books.json")
@@ -49,7 +48,6 @@ ALL_DIRS = [
     FIGURES_DIR,
     BIOMETRICS_DIR,
     FACES_DIR,
-    VOICES_DIR,
 ]
 
 

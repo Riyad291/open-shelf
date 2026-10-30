@@ -18,7 +18,6 @@ carried across the migration untouched.
 
 from __future__ import annotations
 
-from decimal import Decimal
 from typing import List, Optional
 
 from sqlalchemy import select

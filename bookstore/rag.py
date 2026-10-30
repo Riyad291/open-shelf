@@ -17,10 +17,9 @@ from __future__ import annotations
 
 import math
 import os
-import re
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from .catalog import tokenize
 from .storage import Storage

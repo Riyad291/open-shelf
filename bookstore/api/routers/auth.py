@@ -19,7 +19,7 @@ def _tokens(session: Session, user: m.User, request: Request) -> S.TokenOut:
     access, expires = auth_service.create_access_token(user)
     refresh = auth_service.issue_refresh_token(session, user,
                                                client_label(request))
-    samples = runtime.biometrics().face.sample_count(str(user.id))
+    samples = runtime.face_recogniser().sample_count(str(user.id))
     return S.TokenOut(
         access_token=access,
         refresh_token=refresh,
@@ -83,7 +83,7 @@ def refresh(body: S.RefreshIn, request: Request,
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(exc))
 
     _, expires = auth_service.create_access_token(user)
-    samples = runtime.biometrics().face.sample_count(str(user.id))
+    samples = runtime.face_recogniser().sample_count(str(user.id))
     return S.TokenOut(
         access_token=access, refresh_token=new_refresh, expires_at=expires,
         session=present.session_out(user, runtime.config(), samples))
@@ -104,7 +104,7 @@ def logout_everywhere(user: m.User = Depends(require_user),
 @router.get("/session", response_model=S.SessionOut)
 def whoami(user=Depends(current_user)):
     """Who the caller is. A visitor is a valid answer, not an error."""
-    samples = (runtime.biometrics().face.sample_count(str(user.id))
+    samples = (runtime.face_recogniser().sample_count(str(user.id))
                if user else 0)
     return present.session_out(user, runtime.config(), samples)
 

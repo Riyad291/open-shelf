@@ -11,12 +11,7 @@ from __future__ import annotations
 
 import os
 import random
-import sys
-import wave
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from bookstore.storage import Storage            # noqa: E402
 
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -292,66 +287,3 @@ def placeholder_text(title: str, author: str, category: str, description: str) -
         "complete text from gutenberg.org.\n"
         % (title, author, category, description)
     )
-
-
-# ---------------------------------------------------------------------------
-# Synthetic biometrics (demo only)
-# ---------------------------------------------------------------------------
-
-def make_demo_biometrics(storage: Storage, user_ids) -> str:
-    """Create synthetic face and voice samples so the pipeline can be demoed
-    on a machine with no camera or microphone.
-
-    These are obviously not real faces or voices.  They exist so a grader can
-    watch enrolment, training, identification and rejection actually run.  Real
-    enrolment from the camera replaces them.
-    """
-    if np is None or Image is None:
-        return "Skipped demo biometrics: numpy and Pillow are required."
-
-    rng = np.random.default_rng(20261008)
-    made_faces = made_voices = 0
-
-    for index, user_id in enumerate(user_ids):
-        face_dir = os.path.join(storage.faces_dir, user_id)
-        os.makedirs(face_dir, exist_ok=True)
-        yy, xx = np.mgrid[0:96, 0:96].astype(np.float32)
-        for k in range(5):
-            pattern = (
-                128
-                + 55 * np.sin((xx / 96.0) * (index + 1) * 2.6 + 0.2 * k)
-                + 45 * np.cos((yy / 96.0) * (index + 2) * 2.1)
-                + rng.normal(0, 7, (96, 96))
-            )
-            arr = np.clip(pattern, 0, 255).astype(np.uint8)
-            Image.fromarray(arr).save(os.path.join(face_dir, "sample_%02d.png" % (k + 1)))
-            made_faces += 1
-
-        voice_dir = os.path.join(storage.voices_dir, user_id)
-        os.makedirs(voice_dir, exist_ok=True)
-        f0 = 95.0 + index * 38.0
-        for k in range(4):
-            rate = 16000
-            t = np.arange(int(rate * 1.6)) / rate
-            signal = np.zeros_like(t)
-            for harmonic, amp in enumerate([1.0, 0.55, 0.32, 0.2], start=1):
-                signal += amp * np.sin(2 * np.pi * f0 * (1 + 0.01 * k) * harmonic * t)
-            signal *= 1 + 0.25 * np.sin(2 * np.pi * (2.5 + index) * t)
-            signal += rng.normal(0, 0.02, signal.shape)
-            signal /= max(1e-6, float(np.abs(signal).max()))
-            path = os.path.join(voice_dir, "sample_%02d.wav" % (k + 1))
-            with wave.open(path, "wb") as handle:
-                handle.setnchannels(1)
-                handle.setsampwidth(2)
-                handle.setframerate(rate)
-                handle.writeframes((signal * 20000).astype("<i2").tobytes())
-            made_voices += 1
-
-    return ("Created %d synthetic face samples and %d synthetic voice samples for "
-            "%d user(s). These are demo patterns, not real biometrics -- re-enrol "
-            "from the camera for a real demo." % (made_faces, made_voices, len(user_ids)))
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------

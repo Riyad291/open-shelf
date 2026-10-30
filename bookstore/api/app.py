@@ -19,7 +19,7 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 
 from ..config import PROJECT_ROOT, ensure_dirs
 from ..db import models as m
-from ..db.base import Base, configure as configure_db, database_url, engine
+from ..db.base import Base, configure as configure_db, engine
 from ..db.base import session_factory
 from . import runtime
 from . import schemas as S
@@ -112,7 +112,7 @@ def create_app(database: Optional[str] = None,
         container that cannot read its own data is unhealthy even though it
         answers.
         """
-        service = runtime.biometrics()
+        service = runtime.face_recogniser()
         llm = runtime.llm()
         llm_ready = llm.is_up()
         llm_note = ("Ollama is answering at %s." % llm.base_url if llm_ready
@@ -139,8 +139,8 @@ def create_app(database: Optional[str] = None,
             database=database_state,
             books=int(books), accounts=int(users), orders=int(orders),
             knowledge_base_chunks=len(runtime.retriever().chunks),
-            face_model_trained=service.face.trained,
-            face_detector=service.face.backend_description,
+            face_model_trained=service.trained,
+            face_detector=service.backend_description,
             llm_ready=bool(llm_ready), llm_status=llm_note,
         )
 

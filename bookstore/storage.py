@@ -99,10 +99,6 @@ class Storage:
     def faces_dir(self) -> str:
         return os.path.join(self.data_dir, "biometrics", "faces")
 
-    @property
-    def voices_dir(self) -> str:
-        return os.path.join(self.data_dir, "biometrics", "voices")
-
     def _ensure_layout(self) -> None:
         for path in [
             self.data_dir,
@@ -111,7 +107,6 @@ class Storage:
             self.figures_dir,
             self.book_text_dir,
             self.faces_dir,
-            self.voices_dir,
         ]:
             os.makedirs(path, exist_ok=True)
 

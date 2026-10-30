@@ -14,7 +14,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import List, Optional
 
-from sqlalchemy import case, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..db import models as m

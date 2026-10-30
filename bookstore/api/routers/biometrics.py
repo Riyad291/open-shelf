@@ -70,18 +70,18 @@ async def _collect(frames: List[UploadFile]) -> List[bytes]:
 
 @router.get("/status", response_model=S.BiometricStatusOut)
 def status_(user: m.User = Depends(require_user)):
-    service = runtime.biometrics()
+    service = runtime.face_recogniser()
     config = runtime.config()
-    samples = service.face.sample_count(str(user.id))
+    samples = service.sample_count(str(user.id))
     return S.BiometricStatusOut(
         face_enrolled=samples > 0,
         face_samples=samples,
-        face_model_trained=service.face.trained,
-        detector=service.face.backend_description,
+        face_model_trained=service.trained,
+        detector=service.backend_description,
         required_samples=config.face_enrolment_samples,
-        available=service.face.available(),
-        message="" if service.face.available()
-        else service.face.dependency_message(),
+        available=service.available(),
+        message="" if service.available()
+        else service.dependency_message(),
     )
 
 
@@ -95,10 +95,10 @@ async def enroll_face(frames: List[UploadFile] = File(...),
     parameter, so there is no request that enrols a face against somebody
     else's login.
     """
-    service = runtime.biometrics()
-    if not service.face.available():
+    service = runtime.face_recogniser()
+    if not service.available():
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
-                            service.face.dependency_message())
+                            service.dependency_message())
 
     payloads = await _collect(frames)
     accepted = 0
@@ -107,7 +107,7 @@ async def enroll_face(frames: List[UploadFile] = File(...),
     for index, payload in enumerate(payloads):
         path = _write_temp(payload, frames[index].filename or "")
         try:
-            result = service.face.add_sample_from_file(str(user.id), path)
+            result = service.add_sample_from_file(str(user.id), path)
             if getattr(result, "ok", False):
                 accepted += 1
                 session.add(m.BiometricSample(
@@ -118,10 +118,10 @@ async def enroll_face(frames: List[UploadFile] = File(...),
         finally:
             os.unlink(path)
 
-    total = service.face.sample_count(str(user.id))
+    total = service.sample_count(str(user.id))
     trained = False
     if accepted:
-        trained, _ = service.face.train()
+        trained, _ = service.train()
         session.add(m.Event(kind="face_enrolled", user_id=user.id,
                             detail="%d frame(s), %d total" % (accepted, total)))
     session.flush()
@@ -167,12 +167,12 @@ async def login_by_face(request: Request, frames: List[UploadFile] = File(...),
     stranger's best frame still has to clear the same threshold, and the
     threshold is unchanged.
     """
-    service = runtime.biometrics()
-    if not service.face.available():
+    service = runtime.face_recogniser()
+    if not service.available():
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
-                            service.face.dependency_message())
+                            service.dependency_message())
 
-    if not service.face.trained:
+    if not service.trained:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             "No face has been enrolled in this shop yet. Sign in with a "
@@ -185,7 +185,7 @@ async def login_by_face(request: Request, frames: List[UploadFile] = File(...),
     for index, payload in enumerate(payloads):
         path = _write_temp(payload, frames[index].filename or "")
         try:
-            attempt = service.face.identify_image(path)
+            attempt = service.identify_image(path)
         finally:
             os.unlink(path)
 
@@ -228,7 +228,7 @@ async def login_by_face(request: Request, frames: List[UploadFile] = File(...),
     access, expires = auth_service.create_access_token(user)
     refresh = auth_service.issue_refresh_token(session, user,
                                                client_label(request))
-    samples = service.face.sample_count(str(user.id))
+    samples = service.sample_count(str(user.id))
     return S.TokenOut(
         access_token=access, refresh_token=refresh, expires_at=expires,
         session=present.session_out(user, runtime.config(), samples))
@@ -242,14 +242,14 @@ def forget_face(user: m.User = Depends(require_user),
     Biometric data a person cannot delete is biometric data they did not
     really consent to, so this removes the files and retrains without them.
     """
-    service = runtime.biometrics()
-    removed = service.face.clear_samples(str(user.id))
+    service = runtime.face_recogniser()
+    removed = service.clear_samples(str(user.id))
 
     for sample in list(user.face_samples):
         session.delete(sample)
 
     if removed:
-        service.face.train()
+        service.train()
         session.add(m.Event(kind="face_deleted", user_id=user.id,
                             detail="%d sample(s)" % removed))
     session.flush()

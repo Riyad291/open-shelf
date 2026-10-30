@@ -15,7 +15,7 @@ from ..storage import Storage
 
 
 #: Reentrant on purpose. These builders call one another -- retriever(),
-#: images() and biometrics() each need files() -- so a plain Lock deadlocks
+#: images() and face_recogniser() each need files() -- so a plain Lock deadlocks
 #: the moment one of them runs: the outer call holds it and the inner call
 #: waits for it, in the same thread, forever. The symptom was a /api/health
 #: request that never returned and a server with an empty log.
@@ -74,9 +74,14 @@ def images():
         return _state["images"]
 
 
-def biometrics():
-    from ..biometrics import BiometricService
+def face_recogniser():
+    """The process's one face recogniser, built on first use.
+
+    One instance so that the trained eigenface model is loaded from disk
+    once, not on every sign-in.
+    """
+    from ..biometrics import FaceRecogniser
     with _lock:
-        if "biometrics" not in _state:
-            _state["biometrics"] = BiometricService(files())
-        return _state["biometrics"]
+        if "faces" not in _state:
+            _state["faces"] = FaceRecogniser(files())
+        return _state["faces"]

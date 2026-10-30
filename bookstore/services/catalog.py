@@ -16,7 +16,7 @@ import math
 import os
 import threading
 from collections import Counter
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session

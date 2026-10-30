@@ -25,7 +25,6 @@ tab instead of crashing.
 from __future__ import annotations
 
 import json
-import math
 import os
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple

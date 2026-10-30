@@ -102,8 +102,8 @@ def delete_book(book_id: int, session: Session = Depends(db_session)):
 def list_accounts(session: Session = Depends(db_session)):
     users = session.execute(
         select(m.User).order_by(m.User.username)).scalars().all()
-    biometrics = runtime.biometrics()
-    return [present.account_out(u, biometrics.face.sample_count(str(u.id)))
+    biometrics = runtime.face_recogniser()
+    return [present.account_out(u, biometrics.sample_count(str(u.id)))
             for u in users]
 
 
@@ -113,7 +113,7 @@ def one_account(user_id: int, session: Session = Depends(db_session)):
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such account.")
     return present.account_out(
-        user, runtime.biometrics().face.sample_count(str(user.id)))
+        user, runtime.face_recogniser().sample_count(str(user.id)))
 
 
 @router.patch("/accounts/{user_id}", response_model=S.AccountOut)
