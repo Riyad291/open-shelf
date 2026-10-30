@@ -161,3 +161,22 @@ class TestConcurrentImports:
         assert failures == []
         session.expire_all()
         assert count(session, m.Resource) == len(rows)
+
+
+class TestTopicsFollowUpstream:
+    def test_a_recategorised_entry_loses_its_old_topic(self, session, source):
+        reconcile(session, source, [make_parsed(1, topics=["Python"])])
+        reconcile(session, source, [make_parsed(1, topics=["Rust"])])
+
+        names = session.execute(
+            select(m.Topic.name)
+            .join(m.ResourceTopic, m.ResourceTopic.topic_id == m.Topic.id)
+        ).scalars().all()
+        assert names == ["Rust"]
+
+
+def test_languages_that_differ_by_a_symbol_keep_separate_topics():
+    from bookstore.ingest.pipeline import slugify
+    slugs = {slugify(name) for name in ["C", "C++", "C#", "F#", "Q#"]}
+    assert len(slugs) == 5
+    assert slugify("C++") == "c-plus-plus" and slugify("C#") == "c-sharp"

@@ -22,15 +22,33 @@ _ENTRY = re.compile(r"^\s*[*-]\s+\[(?P<title>[^\]]+)\]\((?P<url>[^)\s]+)")
 _HEADING = re.compile(r"^(?P<depth>#{3,4})\s+(?P<name>.+?)\s*$")
 _PAREN = re.compile(r"\(([^()]*)\)")
 _LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+_TAG = re.compile(r"<[^>]+>")
 
 _KNOWN_MEDIA = {
     "pdf": "PDF", "html": "HTML", "epub": "EPUB", "mobi": "MOBI",
     "ipynb": "Notebook", "kindle": "Kindle", "postscript": "PostScript",
     "ps": "PostScript", "djvu": "DjVu", "markdown": "Markdown",
-    "md": "Markdown", "txt": "Text", "doc": "Doc", "rtf": "RTF",
+    "md": "Markdown", "txt": "Text", "text": "Text", "doc": "Doc",
+    "rtf": "RTF", "xps": "XPS", "ibook": "iBook", "gitbook": "GitBook",
+    "asciidoc": "AsciiDoc", "latex": "LaTeX",
 }
 
-_SKIP_HEADINGS = {"index", "contents", "table of contents"}
+# Sections that are not books. "Meta-Lists" links to other people's lists.
+_SKIP_HEADINGS = {"index", "contents", "table of contents", "meta-lists"}
+
+
+def clean_heading(raw: str) -> str:
+    """A heading as a reader would say it.
+
+    The upstream files put HTML anchors in some headings and escape "#" for
+    markdown, so the raw text of the C# heading is
+    ``<a id="csharp"></a>C\\#``. Kept as-is, that became a topic name on
+    the page. A leading "0 - " ordering prefix goes too.
+    """
+    text = _TAG.sub("", raw)
+    text = re.sub(r"\\(.)", r"\1", text)
+    text = re.sub(r"^\d+\s*-\s*", "", text)
+    return text.strip()
 
 
 @dataclass
@@ -209,7 +227,7 @@ def parse_markdown_list(text: str, language: str = "en",
     for line in text.splitlines():
         heading = _HEADING.match(line)
         if heading:
-            name = heading.group("name").strip()
+            name = clean_heading(heading.group("name"))
             if len(heading.group("depth")) == 3:
                 section = name
                 subsection = ""

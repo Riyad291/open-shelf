@@ -24,6 +24,7 @@ const state = {
   session: { signed_in: false, role: "VS", role_name: "Visitor" },
   page: { offset: 0, limit: 24, total: 0 },
   filter: { axis: "categories", value: null },
+  library: { q: "", topic: null, sort: "title", offset: 0, limit: 30, total: 0 },
   camera: { stream: null, mode: null, shots: [] },
 };
 
@@ -230,6 +231,102 @@ async function loadShelf() {
   $("#page-label").textContent = `Page ${current} of ${pages} · ${page.total} books`;
   $("#page-prev").disabled = state.page.offset === 0;
   $("#page-next").disabled = state.page.offset + state.page.limit >= page.total;
+}
+
+/* --------------------------------------------------------------- library */
+
+/* The free technology catalogue. Each card links to /api/resources/{id}/open,
+   which counts the click and redirects to wherever the book is published, so
+   "Most opened" is real usage rather than a guess. */
+
+const TOPIC_COLOURS = ["#e8622c", "#1f7a6b", "#8c2f39", "#4a3a82", "#b5476b",
+                       "#e0a32e", "#2d6e9e", "#5c6b3f"];
+
+function topicColour(name) {
+  let h = 0;
+  for (const ch of String(name || "")) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return TOPIC_COLOURS[h % TOPIC_COLOURS.length];
+}
+
+function resourceCard(r) {
+  const facts = [r.media, r.licence].filter(Boolean).map(esc).join(" · ");
+  return `
+    <a class="card res" href="${API}/resources/${r.id}/open" target="_blank"
+       rel="noopener" style="--spine:${topicColour(r.topics[0])}">
+      <span>
+        <span class="card-t">${esc(r.title)}</span>
+        ${r.in_progress ? `<span class="badge grey">in progress</span>` : ""}
+        ${r.authors ? `<span class="card-a">${esc(r.authors)}</span>` : ""}
+        ${r.description ? `<span class="card-d">${esc(r.description)}</span>` : ""}
+        <span class="card-m">${facts}${facts && r.topics.length ? " · " : ""}${
+          r.topics.map(esc).join(", ")}</span>
+      </span>
+    </a>`;
+}
+
+async function loadTopics() {
+  const topics = await api("/resources/topics");
+  const lib = state.library;
+  $("#lib-topics").innerHTML = topics.slice(0, 28).map((t) => `
+    <button class="chip ${lib.topic === t.slug ? "on" : ""}" data-topic="${esc(t.slug)}">
+      ${esc(t.name)} <span>${t.count}</span>
+    </button>`).join("");
+}
+
+async function loadLibrary() {
+  const lib = state.library;
+  const params = new URLSearchParams({
+    limit: lib.limit, offset: lib.offset, sort: lib.sort,
+  });
+  if (lib.q) params.set("q", lib.q);
+  if (lib.topic) params.set("topic", lib.topic);
+
+  const page = await api("/resources?" + params.toString());
+  lib.total = page.total;
+  $("#lib-list").innerHTML = page.items.map(resourceCard).join("")
+    || `<p class="empty">Nothing matches. Try a broader word, or clear the topic.</p>`;
+  $("#lib-count").textContent = page.total.toLocaleString() +
+    (page.total === 1 ? " resource" : " resources") +
+    (lib.q ? ` matching “${lib.q}”` : "");
+
+  const pages = Math.ceil(page.total / lib.limit) || 1;
+  const current = Math.floor(lib.offset / lib.limit) + 1;
+  $("#lib-pager").hidden = pages <= 1;
+  $("#lib-page").textContent = `Page ${current} of ${pages}`;
+  $("#lib-prev").disabled = lib.offset === 0;
+  $("#lib-next").disabled = lib.offset + lib.limit >= page.total;
+}
+
+function wireLibrary() {
+  const lib = state.library;
+  $("#lib-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    lib.q = $("#lib-q").value.trim();
+    lib.offset = 0;
+    loadLibrary().catch((x) => toast(x.message, "bad"));
+  });
+  $("#lib-sort").addEventListener("change", () => {
+    lib.sort = $("#lib-sort").value;
+    lib.offset = 0;
+    loadLibrary().catch((x) => toast(x.message, "bad"));
+  });
+  $("#lib-topics").addEventListener("click", (e) => {
+    const chip = e.target.closest("[data-topic]");
+    if (!chip) return;
+    lib.topic = lib.topic === chip.dataset.topic ? null : chip.dataset.topic;
+    lib.offset = 0;
+    $$("#lib-topics .chip").forEach((c) =>
+      c.classList.toggle("on", c.dataset.topic === lib.topic));
+    loadLibrary().catch((x) => toast(x.message, "bad"));
+  });
+  $("#lib-prev").addEventListener("click", () => {
+    lib.offset = Math.max(0, lib.offset - lib.limit);
+    loadLibrary().then(() => window.scrollTo(0, 0));
+  });
+  $("#lib-next").addEventListener("click", () => {
+    lib.offset += lib.limit;
+    loadLibrary().then(() => window.scrollTo(0, 0));
+  });
 }
 
 /* ------------------------------------------------------------ book sheet */
@@ -872,7 +969,7 @@ async function signOut() {
   clearTokens();
   paintSession();
   await Promise.all([loadPicks(), loadShelf()]);
-  show("shelf");
+  show("library");
   toast("Signed out. You are browsing as a visitor.");
 }
 
@@ -881,7 +978,7 @@ async function signOut() {
 function wire() {
   $$(".nav button").forEach((b) =>
     b.addEventListener("click", () => show(b.dataset.view)));
-  $("#home-btn").addEventListener("click", () => show("shelf"));
+  $("#home-btn").addEventListener("click", () => show("library"));
 
   document.addEventListener("click", (e) => {
     const target = e.target.closest("[data-book]");
@@ -1055,9 +1152,11 @@ function wire() {
   });
 
   wire();
+  wireLibrary();
   await loadSession();
   try {
-    await Promise.all([loadFacets(), loadPicks(), loadShelf()]);
+    await Promise.all([loadTopics(), loadLibrary(),
+                       loadFacets(), loadPicks(), loadShelf()]);
   } catch (e) {
     toast("Could not reach the server: " + e.message, "bad");
   }

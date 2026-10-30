@@ -13,6 +13,8 @@ The guarantees, each with a test:
 * **Ours stays ours.** Columns upstream does not control -- clicks, link
   health -- are never in the upsert's SET list, so an import cannot reset
   them.
+* **Topics follow upstream.** A row that is written gets the topics upstream
+  lists now, not those plus every topic it ever had.
 * **Nothing vanishes.** An entry removed upstream is not deleted here; it
   may have reviews or clicks attached. Deciding what to do with it is a
   separate, deliberate step.
@@ -26,7 +28,7 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Dict, Iterable, List
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.orm import Session
 
@@ -63,6 +65,12 @@ class ImportReport:
 
 
 def slugify(text: str) -> str:
+    """A URL-safe key for a topic name.
+
+    "+" and "#" are spelled out first. Stripped like other punctuation, C,
+    C++ and C# all became "c" and were merged into one topic of 114 books.
+    """
+    text = text.replace("+", " plus ").replace("#", " sharp ")
     text = unicodedata.normalize("NFKD", text)
     text = "".join(c for c in text if not unicodedata.combining(c))
     slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
@@ -168,6 +176,14 @@ def _sync_topics(session: Session, source: m.Source,
                         .where(m.Resource.source_id == source.id,
                                m.Resource.external_id.in_(
                                    [i.external_id for i in items])))}
+
+    # A row being written gets exactly the topics upstream lists now. Without
+    # this, an entry moved from one section to another kept its old topic
+    # too, forever: the upsert replaced its columns, but links live in their
+    # own table and were only ever added.
+    if resource_ids:
+        session.execute(delete(m.ResourceTopic).where(
+            m.ResourceTopic.resource_id.in_(list(resource_ids.values()))))
 
     links = []
     for item in items:

@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from bookstore.ingest.parsers import (
-    looks_like_names, normalise_url, parse_entry, parse_markdown_list,
+    clean_heading, looks_like_names, normalise_url, parse_entry, parse_markdown_list,
     work_key,
 )
 
@@ -184,3 +184,27 @@ class TestNameDetection:
     ])
     def test_sentences(self, text):
         assert not looks_like_names(text)
+
+
+class TestHeadingCleanup:
+    """Real headings from the upstream files, which carry HTML anchors and
+    markdown escapes that must not reach a topic name."""
+
+    @pytest.mark.parametrize("raw, clean", [
+        ('<a id="csharp"></a>C\\#', "C#"),
+        ('<a id="cpp"></a>C++', "C++"),
+        ('<a id="version-control-systems"></a><a id="git"></a>'
+         'Version Control Systems', "Version Control Systems"),
+        ("Python", "Python"),
+    ])
+    def test_headings_become_plain_names(self, raw, clean):
+        assert clean_heading(raw) == clean
+
+    def test_meta_lists_are_not_books(self):
+        text = "\n".join([
+            "### 0 - Meta-Lists",
+            "* [Another List](https://example.org/list)",
+            "### Python",
+            "* [Real](https://example.org/real)",
+        ])
+        assert [r.title for r in parse_markdown_list(text)] == ["Real"]

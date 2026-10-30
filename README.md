@@ -13,7 +13,7 @@ photograph of your bookshelf.
 The face recogniser, the image descriptor and the search ranking are written
 here in numpy. No ML framework does the interesting part.
 
-![The catalogue, drawn as book spines](docs/screenshots/shelf.png)
+![The library: 2,434 free technology books, searchable by topic](docs/screenshots/library.png)
 
 ---
 

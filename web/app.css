@@ -268,6 +268,26 @@ main { max-width: 1180px; margin: 0 auto; padding: 36px 24px 90px; }
   border: 1px solid var(--rule); border-radius: 3px;
 }
 .search input::placeholder { color: #6b7b9c; }
+.search select {
+  font: inherit; padding: 0 10px; background: var(--ink-deep);
+  color: var(--on-ink); border: 1px solid var(--rule); border-radius: 3px;
+}
+
+/* --------------------------------------------------------------- library */
+
+.lib-count { color: var(--on-ink-dim); font-size: .88rem; margin: 22px 0 10px; }
+.results { display: grid; gap: 10px; }
+a.card { text-decoration: none; }
+.card.res > span { display: grid; gap: 3px; min-width: 0; }
+.card.res .card-a { margin: 0; }
+.card-d { font-size: .86rem; color: #c3cde2; }
+.card.res .badge { justify-self: start; }
+.attribution { color: var(--on-ink-dim); font-size: .8rem; margin-top: 28px; }
+.attribution a { color: inherit; }
+@media (max-width: 560px) {
+  .search { flex-wrap: wrap; }
+  .search input { flex-basis: 100%; }
+}
 
 .or {
   display: flex; align-items: center; gap: 14px;

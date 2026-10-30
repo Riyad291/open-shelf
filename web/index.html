@@ -20,7 +20,8 @@
     </button>
 
     <nav class="nav" aria-label="Sections">
-      <button data-view="shelf" class="on">Shelf</button>
+      <button data-view="library" class="on">Library</button>
+      <button data-view="shelf">Shelf</button>
       <button data-view="search">Search</button>
       <button data-view="scan">Shelf&nbsp;Scan</button>
       <button data-view="chat">Ask</button>
@@ -37,8 +38,43 @@
 
 <main id="main">
 
+  <!-- ===================================================== library -->
+  <section class="view on" data-view="library">
+    <h1>Free technology books</h1>
+    <p class="lede" id="lib-lede">
+      Books, courses and notes their authors have made free to read. Every
+      link goes to wherever the author publishes it.
+    </p>
+
+    <form class="search" id="lib-form" role="search">
+      <input id="lib-q" type="search" placeholder="Title, author or subject"
+             aria-label="Search the library" autocomplete="off">
+      <select id="lib-sort" aria-label="Sort by">
+        <option value="title">A–Z</option>
+        <option value="popular">Most opened</option>
+        <option value="newest">Newest</option>
+      </select>
+      <button class="btn btn-solid">Search</button>
+    </form>
+    <div class="chips" id="lib-topics" aria-label="Topics"></div>
+
+    <p class="lib-count" id="lib-count" aria-live="polite"></p>
+    <div class="results" id="lib-list"></div>
+    <div class="pager" id="lib-pager" hidden>
+      <button class="btn btn-ghost" id="lib-prev">Previous</button>
+      <span id="lib-page"></span>
+      <button class="btn btn-ghost" id="lib-next">Next</button>
+    </div>
+    <p class="attribution" id="lib-credit">
+      Catalogue data from the
+      <a href="https://github.com/EbookFoundation/free-programming-books"
+         target="_blank" rel="noopener">free-programming-books</a>
+      project by the Free Ebook Foundation, used under CC BY 4.0.
+    </p>
+  </section>
+
   <!-- ===================================================== shelf -->
-  <section class="view on" data-view="shelf">
+  <section class="view" data-view="shelf">
     <div class="hero">
       <div class="hero-copy">
         <h1 id="shelf-title">On the shelf</h1>
