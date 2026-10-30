@@ -23,7 +23,9 @@ from ..db.base import Base, configure as configure_db, database_url, engine
 from ..db.base import session_factory
 from . import runtime
 from . import schemas as S
-from .routers import admin, auth, biometrics, cart, catalog, chat, shelfscan
+from .routers import (
+    admin, auth, biometrics, cart, catalog, chat, resources, shelfscan,
+)
 
 
 DESCRIPTION = """
@@ -73,7 +75,8 @@ def create_app(database: Optional[str] = None,
     )
 
     for router in (auth.router, catalog.router, cart.router, chat.router,
-                   biometrics.router, shelfscan.router, admin.router):
+                   biometrics.router, shelfscan.router, admin.router,
+                   resources.router):
         app.include_router(router)
 
     # -- error handling ---------------------------------------------------

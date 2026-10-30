@@ -400,4 +400,42 @@ class HealthOut(BaseModel):
     llm_status: str
 
 
+# ------------------------------------------------------------- resources
+
+
+class TopicOut(BaseModel):
+    slug: str
+    name: str
+    count: int
+
+
+class ResourceOut(BaseModel):
+    id: int
+    title: str
+    authors: str = ""
+    description: str = ""
+    url: str
+    media: str = ""
+    language: str = "en"
+    licence: str = ""
+    kind: str = "book"
+    in_progress: bool = False
+    click_count: int = 0
+    topics: List[str] = []
+    source: str = ""
+
+
+class ResourceDetailOut(ResourceOut):
+    attribution: str = ""
+    source_homepage: str = ""
+    also_available: List[ResourceOut] = []
+
+
+class ResourcePageOut(BaseModel):
+    items: List[ResourceOut]
+    total: int
+    limit: int
+    offset: int
+
+
 BookDetailOut.model_rebuild()
