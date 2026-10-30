@@ -1,9 +1,9 @@
-/* Inkwell & Co. — browser client.
+/* Open Shelf — browser client.
  *
  * No framework and no build step: this is the whole front end. It talks to the
  * FastAPI service with fetch(), holds a JWT access token in memory and a
  * refresh token in localStorage, and renders the catalogue as book spines on a
- * shelf because the shop's signature feature recognises books from a shelf
+ * shelf because the signature feature here recognises books from a shelf
  * photograph.
  */
 
@@ -20,7 +20,7 @@ const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
 const state = {
   access: null,
-  refresh: localStorage.getItem("inkwell.refresh") || null,
+  refresh: localStorage.getItem("openshelf.refresh") || null,
   session: { signed_in: false, role: "VS", role_name: "Visitor" },
   page: { offset: 0, limit: 24, total: 0 },
   filter: { axis: "categories", value: null },
@@ -81,14 +81,14 @@ async function api(path, { method = "GET", body, raw = false, retry = true } = {
 function storeTokens(data) {
   state.access = data.access_token;
   state.refresh = data.refresh_token;
-  localStorage.setItem("inkwell.refresh", data.refresh_token);
+  localStorage.setItem("openshelf.refresh", data.refresh_token);
   state.session = data.session;
 }
 
 function clearTokens() {
   state.access = null;
   state.refresh = null;
-  localStorage.removeItem("inkwell.refresh");
+  localStorage.removeItem("openshelf.refresh");
   state.session = { signed_in: false, role: "VS", role_name: "Visitor" };
 }
 
@@ -186,9 +186,13 @@ async function loadPicks() {
   $("#shelf-title").textContent = state.session.signed_in
     ? `Picked for ${esc(state.session.display_name || state.session.username)}`
     : "On the shelf";
-  $("#shelf-sub").textContent = picks.length
-    ? picks[0].reason
-    : "Nothing to recommend yet.";
+  // The reason belongs to the first pick, not to the page: shown here it
+  // read as if it described all three. Each pick explains itself on its card.
+  $("#shelf-sub").textContent = !picks.length
+    ? "Nothing to recommend yet."
+    : state.session.signed_in
+      ? "Chosen from what you have read and rated."
+      : "Three picks from what readers here rate most.";
 }
 
 async function loadFacets() {
@@ -919,7 +923,7 @@ function wire() {
     attemptSignIn($("#li-user").value.trim(), $("#li-pass").value);
   });
 
-  /* A demo row fills the form and goes, so someone trying the shop out can
+  /* A demo row fills the form and goes, so someone trying this out can
      switch tiers in one click instead of two. */
   $$("#demo-list button").forEach((b) => b.addEventListener("click", () => {
     $("#li-user").value = b.dataset.u;

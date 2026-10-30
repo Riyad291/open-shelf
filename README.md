@@ -1,23 +1,19 @@
-# Inkwell & Co. — an AI-enabled multimodal bookstore
+# Open Shelf
 
-[![CI](https://github.com/USERNAME/smart-bookstore/actions/workflows/ci.yml/badge.svg)](https://github.com/USERNAME/smart-bookstore/actions/workflows/ci.yml)
+[![CI](https://github.com/USERNAME/open-shelf/actions/workflows/ci.yml/badge.svg)](https://github.com/USERNAME/open-shelf/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11%20%E2%80%93%203.12-blue)
-![Tests](https://img.shields.io/badge/tests-100%20passing-brightgreen)
-![Spec](https://img.shields.io/badge/requirements-10%2F10-brightgreen)
+![Tests](https://img.shields.io/badge/tests-149%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
-A bookstore with four privilege tiers, **face-recognition login from the
-browser**, keyword *and* picture search, a cart and checkout that cannot
-oversell, moderated reviews, an assistant that answers from the shop's own
-files, and a feature that reads your taste from a photograph of your bookshelf.
+A free library of technology books. It imports **2,465 freely available
+titles** from open catalogues, lets you search and browse them, answers
+questions about them from its own files, and recognises books from a
+photograph of your bookshelf.
 
-The face recogniser, the speaker recogniser, the image descriptor and the
-retrieval are all written here in numpy. No ML framework does the interesting
-part.
+The face recogniser, the image descriptor and the search ranking are written
+here in numpy. No ML framework does the interesting part.
 
-<p align="center">
-  <img src="docs/screenshots/web-shelf.png" width="80%" alt="The catalogue drawn as book spines on a shelf">
-</p>
+![The catalogue, drawn as book spines](docs/screenshots/shelf.png)
 
 ---
 
@@ -27,54 +23,70 @@ part.
 docker compose up --build
 ```
 
-Then open **http://localhost:8000/app/**. That brings up PostgreSQL, applies
-the migrations, seeds a demo shop and serves the application. The API
-documents itself at `/docs`.
+Then open **http://localhost:8000/app/** — that starts PostgreSQL, applies the
+migrations, seeds the demo library and serves the app. The API documents
+itself at `/docs`.
 
 <details>
 <summary>Without Docker</summary>
 
 ```bash
 pip install -r requirements.txt
-
-# SQLite needs no server and is enough to see everything except row locking.
-export DATABASE_URL="sqlite:///bookstore.db"
+export DATABASE_URL="sqlite:///shelf.db"
 export JWT_SECRET="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
 
 alembic upgrade head
-python tools/seed_db.py
-python -m uvicorn bookstore.api.app:app --reload
+python tools/seed_db.py                        # demo library and accounts
+python tools/import_resources.py free-programming-books   # 2,465 real resources
+python -m bookstore.api
 ```
-
-For PostgreSQL instead, set
-`DATABASE_URL=postgresql+psycopg://user:pass@localhost/bookstore`.
-MySQL works too — it is a connection string and a driver.
 </details>
 
-### One optional step, worth taking
+Sign in as `margaret` / `admin123` for the management views, or `carol` /
+`carol123` to see a trusted contributor's double-weighted ratings.
 
-```bash
-python tools/fetch_models.py        # ~1 MB: YuNet face detector + Haar cascade
-python tools/fetch_models.py --all  # also YOLOv8n (~6 MB) for Shelf Scan
-```
+---
 
-Nothing requires this. Without it the face detector falls back to a centre
-crop of the frame, which works when you sit squarely in front of the camera
-and degrades when you do not — so if face login feels unreliable, this is the
-first thing to try. `/api/health` reports which detector is in use.
+## The three problems worth reading about
 
-### Demo accounts
+**Two people bought the last copy.** When this was a shop, checkout checked
+stock and then decremented it, with nothing making those two steps atomic.
+Measured on PostgreSQL with sixteen simultaneous checkouts:
 
-| Username | Password | Role | Why it's interesting |
-|---|---|---|---|
-| `margaret` | `admin123` | Super-user | Finances, SQL reports, accounts, moderation |
-| `alice` | `alice123` | Registered | Three purchases — one more promotes her |
-| `carol` | `carol123` | VIP | 10% off, visible in the cart |
-| `dave` | `dave1234` | Suspended | Try signing in: refused, and why |
-| `bob` | `bob12345` | Registered | Carries a warning from a blocked comment |
+| | Orders paid |
+|---|---|
+| No row lock | **9 of 16** |
+| `SELECT … FOR UPDATE` | 1 of 16 |
 
-The demo rows in the sign-in panel log you straight in, so you can switch
-tiers in one click and watch the same page change.
+`CHECK (stock >= 0)` does *not* fix this, and it is worth knowing why: in a
+lost update every session reads 1 and writes 0, so no row goes negative and
+the constraint never fires. Preserved at the `v1.0-coursework` tag and in
+[ADR-001](docs/adr/ADR-001-postgresql-and-web-only.md).
+
+**Importing the same catalogue twice.** The importer runs on a schedule and
+sometimes overlaps a manual run. Measured with eight importers starting
+together — and the obvious summary is wrong:
+
+| | Duplicates | Importers that crashed |
+|---|---|---|
+| Check-then-insert | 0 | **7 of 8** |
+| `INSERT … ON CONFLICT DO UPDATE` | 0 | 0 |
+
+The unique constraint is what makes duplication impossible. The upsert is
+what makes *losing the race survivable*. Two mechanisms, two different
+failures. A re-import of an unchanged catalogue writes nothing: 2,465
+inserted on the first run, 2,465 unchanged on the second.
+
+**Search that stops working at scale.** `ILIKE '%term%'` cannot use a B-tree
+index at any size. Grown to 101,065 rows and measured:
+
+| | Time |
+|---|---|
+| `ILIKE` | 239.5 ms, discarding 99,507 rows |
+| `tsvector` + GIN index | **2.0 ms**, same 1,558 results |
+
+118× for a 2.9 MB index. The full analysis, including a scaling problem that
+turned out not to be real, is in [SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md).
 
 ---
 
@@ -82,230 +94,83 @@ tiers in one click and watch the same page change.
 
 | | |
 |---|---|
-| **Four privilege tiers** | Visitor, registered customer, VIP, super-user. Privilege changes prices, recommendations, and how much the assistant will tell you. |
-| **Face login** | Enrol from the browser camera, then sign in by looking at it. Eigenfaces in numpy. |
-| **Cart and checkout** | Real line items, orders, payments — and the last copy cannot be sold twice. |
-| **Keyword search** | TF-IDF over titles, authors, descriptions and full book texts, with a stemmer. |
-| **Picture search** | Hand it a photo of a cover or an internal figure; it finds the book. |
-| **Shelf Scan** | Photograph a bookshelf. It segments the photo, names each book, reads your taste and recommends three more. |
-| **Moderated reviews** | Taboo words masked; more than three blocks the comment and earns a warning; three warnings suspends the account. |
-| **Order lists** | More than three ratings and a weighted average below 2 or above 4 puts a title on the no-order or to-order list. |
-| **Role-tiered assistant** | Answers from shop records, from RAG over local files, or from a local LLM — and always says which. |
-| **SQL reporting** | CTEs, window functions and deliberate outer joins, in the management area. |
-
----
-
-## Screenshots
-
-**The cart, with the VIP discount applied.** The same cart costs a registered
-customer more.
-
-![The cart showing a VIP discount](docs/screenshots/web-cart.png)
-
-**The assistant, answering from the shop's own files and citing them.**
-
-![The assistant answering via RAG with a citation](docs/screenshots/web-chat.png)
-
-**Reports, computed in SQL** — CTEs, window functions and outer joins.
-
-![SQL reports in the management area](docs/screenshots/web-reports.png)
-
-**Shelf Scan**, the creative feature.
-
-![The Shelf Scan upload screen](docs/screenshots/web-scan.png)
+| **Imports real catalogues** | 2,465 resources from free-programming-books (CC-BY-4.0), idempotently, with every run audited |
+| **Search and browse** | TF-IDF keyword search, topic and language facets, 269 topics |
+| **Face sign-in** | Enrol from the browser camera, then sign in by looking at it. Eigenfaces in numpy |
+| **Picture search** | Hand it a photo of a cover; it finds the book |
+| **Shelf Scan** | Photograph a bookshelf. It segments the image, names each book and recommends more |
+| **Assistant** | Answers from the catalogue or from local files via RAG, and always says which |
+| **Moderated reviews** | Taboo words masked; more than three blocks the comment and earns a warning; three warnings suspends the account |
+| **Earned standing** | Three reviews that pass moderation make you a trusted contributor, whose ratings count double |
+| **SQL reporting** | CTEs, window functions and deliberate outer joins in the management views |
 
 ---
 
 ## Architecture
 
 Business rules live in `bookstore/services/` and nowhere else. The HTTP layer
-is transport; the browser client is a view. Neither contains a rule.
+is transport; the browser client is a view.
 
 ```
-                   ┌────────────────────────────┐
-                   │  Browser client — web/     │
-                   │  vanilla JS, no build step │
-                   └─────────────┬──────────────┘
-                                 │ fetch() + JWT
-                   ┌─────────────▼──────────────┐
-                   │  FastAPI — bookstore/api   │
-                   │  43 routes, OpenAPI docs   │
-                   └─────────────┬──────────────┘
-                                 │ one session per request
-         ┌───────────────────────▼────────────────────────┐
-         │  Services — accounts, cart, checkout, reviews, │
-         │  catalog, recommend, finance, auth             │
-         └───────────────────────┬────────────────────────┘
-                                 │ SQLAlchemy
-         ┌───────────────────────▼────────────────────────┐
-         │  PostgreSQL — 15 tables, Alembic migrations    │
-         └────────────────────────────────────────────────┘
-
-   Adapters ──▶ biometrics · imagesearch · shelfscan · rag · chat
-   These were written against the old file store and are indifferent to
-   where a book record comes from. They read it through five names that
-   services/image_catalogue.py and services/chat_adapter.py now serve
-   from SQL, so none of them changed when the storage did.
+  Browser (vanilla JS)  →  FastAPI  →  services/  →  SQLAlchemy  →  PostgreSQL
+                                           ↑
+                        bookstore/ingest/ (importers, same rules)
 ```
-
-### Tech stack
 
 | | |
 |---|---|
-| **Language** | Python 3.11–3.12, JavaScript (no framework), SQL |
-| **API** | FastAPI · Pydantic · uvicorn — 43 routes |
-| **Database** | PostgreSQL · SQLAlchemy 2 · Alembic. Runs on SQLite and MySQL too |
+| **Language** | Python 3.11–3.12, JavaScript, SQL |
+| **API** | FastAPI · Pydantic · uvicorn — 40 paths |
+| **Database** | PostgreSQL · SQLAlchemy 2 · Alembic. Runs on SQLite too |
 | **Auth** | JWT access tokens + rotating refresh tokens with reuse detection; PBKDF2 passwords |
-| **ML / CV** | numpy and OpenCV. Eigenfaces, MFCCs, TF-IDF and the image descriptor are implemented here, not imported |
-| **Testing** | pytest — 100 tests, run against both PostgreSQL and SQLite |
-| **CI/CD** | GitHub Actions — tests on two databases, migration drift check, conformance, lint, Docker |
+| **ML / CV** | numpy and OpenCV. Eigenfaces, TF-IDF and the image descriptor are implemented here, not imported |
+| **Testing** | pytest — 149 tests against both databases |
+| **CI/CD** | GitHub Actions — tests, migration drift check, conformance, lint, Docker |
 
----
-
-## The interesting problems
-
-**Two people bought the last copy.** `purchase()` checked stock and then
-decremented it with no atomicity across the pair. Measured on PostgreSQL with
-sixteen customers checking out simultaneously:
-
-| | Orders paid | |
-|---|---|---|
-| Without a row lock | **9 of 16** | nine customers charged for one copy |
-| With `SELECT … FOR UPDATE` | **1 of 16** | correct |
-
-The locks are taken in ascending book id, because two customers buying the
-same two books in opposite orders is a deadlock otherwise. `CHECK (stock >= 0)`
-does *not* fix this and it is worth knowing why: in a lost update every session
-reads 1 and writes 0, so no row goes negative and the constraint stays silent.
-
-**Face login was a coin toss.** Enrolment worked; signing in used a single
-photograph. Against a trained model, three consecutive frames of the same
-person scored 0.774, 0.662 and **0.484** against a 0.62 threshold — a blink or
-a slight turn and you were refused for no visible reason. The client now sends
-a short burst and the server keeps the best. Measured afterwards: the enrolled
-person signed in 6 of 6 times, a stranger 0 of 6.
-
-**Refresh worked on PostgreSQL and crashed on SQLite.** PostgreSQL returns
-timezone-aware datetimes; SQLite returns naive ones. Comparing an expiry
-against now raised `TypeError` — on the path every signed-in person takes every
-fifteen minutes. The suite now runs against both databases for this reason.
-
-**Reuse detection detected reuse and did nothing.** A reused refresh token
-revoked the whole family, then raised — and the session dependency rolls back
-when a request raises, undoing the revocation. The API said *"this session was
-ended for security"* while every token kept working, which is worse than not
-detecting it, because it looks handled.
-
-**OpenCV 5 removed the thing everyone uses.** `cv2.face.LBPHFaceRecognizer`,
-`cv2.CascadeClassifier` and the bundled Haar cascades are gone. The recogniser
-is eigenfaces written here: crop, histogram-equalise, 96×96, mean-centre, PCA
-by SVD, nearest neighbour, confidence-thresholded.
-
-**"What is the capital of Mongolia?" was answered from the shop's FAQ.** It
-scored just high enough on filler words. Retrieval now requires the best chunk
-to clear a similarity threshold **and** share a rare term with the corpus.
+Deeper: [ARCHITECTURE.md](ARCHITECTURE.md) ·
+[SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md) · [ADR-001](docs/adr/ADR-001-postgresql-and-web-only.md) ·
+[ADR-002](docs/adr/ADR-002-free-resource-platform.md)
 
 ---
 
 ## Tests
 
 ```bash
-pytest tests/                                    # 96 passing, 4 skipped
-TEST_DATABASE_URL=postgresql+psycopg://… pytest  # 100 passing
-python tools/verify_features.py                  # 10 of 10 requirements
+pytest tests/                                    # 148 passing, 1 skipped
+TEST_DATABASE_URL=postgresql+psycopg://… pytest  # 149 passing
+python tools/verify_features.py                  # 10 of 10 features
 ```
 
-| Suite | What it is for |
-|---|---|
-| `test_rules.py` | Every numbered requirement, in isolation |
-| `test_api.py` | Status codes, privilege on every route, order scoping, credential leakage |
-| `test_concurrency.py` | The last copy, bought by sixteen people at once |
-| `test_integration.py` | One long session, then audited like a shop's books: the report must reconcile with the ledger, stock must be conserved, no account may hold an impossible state |
-
-`test_concurrency.py` includes a canary that reimplements checkout **without**
-the row lock and asserts that it oversells. If the race ever stops reproducing,
-the real test has stopped being evidence and says so, rather than passing
-quietly. Those tests skip on SQLite rather than pass vacuously, and CI fails
-the build if they skipped on PostgreSQL.
-
-`tools/verify_features.py` is a conformance check rather than a test: it builds
-a throwaway shop, drives the real API the way a grader would, and prints the
-evidence beside each requirement. A passing suite proves the code does what the
-tests say; this proves the tests say what the specification says.
+`test_ingest_pipeline.py` includes a concurrency test that runs six importers
+at once and asserts the catalogue neither duplicates nor crashes.
+`test_integration.py` runs one long session and then audits it: reported
+figures must match the rows behind them, every warning must have an event
+recording it, and no account may hold a state the rules say cannot exist.
 
 ---
 
 ## Known limitations
 
-Stated here rather than left to be discovered.
+Stated here rather than left to be found.
 
-- **No rate limiting on sign-in.** Passwords are PBKDF2 over 120,000 rounds,
-  which makes guessing slow, but nothing stops an attacker trying.
-- **Face login is a convenience, not a hard security boundary.** A photograph
-  of the account holder will usually pass. The threshold is set to reject
-  strangers, not to be unspoofable, and the password remains.
-- **No accuracy figure is claimed for face recognition.** It is verified end to
-  end with synthetic faces and a simulated camera. That proves the pipeline,
-  not a number for real faces.
-- **The detector models are not bundled.** A fresh clone and the Docker image
-  both start with the centre-crop fallback until `tools/fetch_models.py` has
-  run. Face login still works; it is just more sensitive to how you sit.
-- **Voice login has no web interface.** The MFCC speaker recogniser is still in
-  the codebase; only face login is exposed over HTTP.
-- **`CORS_ORIGINS` defaults to `*`.** Fine for a local demo with bearer tokens
-  and no cookies; name your origin before deploying.
-- **The LLM fallback needs Ollama running locally.** Without it, shop questions
-  are still answered from the knowledge base and the app says the model is
-  offline.
+- **No rate limiting.** Passwords are PBKDF2 over 120,000 rounds, but nothing
+  stops an attacker trying.
+- **No accuracy figure is claimed for face recognition.** It is verified end
+  to end with synthetic faces and a simulated camera. That proves the
+  pipeline, not a number for real faces.
+- **Links are not yet health-checked.** 2,465 URLs point at other people's
+  servers and will decay. The checker is designed but not built.
+- **The LLM fallback needs Ollama running locally.** Without it, questions are
+  still answered from the knowledge base and the app says the model is offline.
+- **`CORS_ORIGINS` defaults to `*`.** Fine for a local demo; name your origin
+  before deploying.
 
----
+## Attribution
 
-## Project history
-
-This began as a university software-engineering project with two constraints:
-a local GUI, and text files instead of a database. It met both — that version
-is tagged **`v1.0-coursework`** and still runs:
-
-```bash
-git checkout v1.0-coursework   # Tkinter desktop app, JSON storage, 198 tests
-```
-
-Everything after that tag targets a different audience. The reasoning, the
-options weighed and what was given up are in
-[ADR-001](docs/adr/ADR-001-postgresql-and-web-only.md), and
-[docs/FEATURE_PARITY.md](docs/FEATURE_PARITY.md) maps every original
-requirement to where it lives now.
-
----
-
-## What's where
-
-```
-smart_bookstore/
-├── docker-compose.yml          PostgreSQL + the app, one command
-├── alembic/                    migrations
-├── bookstore/
-│   ├── db/                     schema and session
-│   ├── services/               THE BUSINESS RULES
-│   │   ├── checkout.py         the transaction, with row locks
-│   │   ├── auth.py             JWT and refresh-token rotation
-│   │   └── …                   accounts, cart, reviews, catalog, finance
-│   ├── api/
-│   │   ├── routers/            one per resource
-│   │   └── deps.py             authorisation, declared not remembered
-│   ├── biometrics.py           eigenfaces + MFCC speaker ID, in numpy
-│   ├── imagesearch.py          the image descriptor
-│   ├── shelfscan.py            the creative feature
-│   ├── rag.py  chat.py  llm.py the assistant
-│   └── moderation.py           taboo masking and blocking
-├── web/                        the browser client — 3 files, no build step
-├── tools/
-│   ├── seed_db.py              the demo shop
-│   ├── verify_features.py      every requirement, against running code
-│   └── check_camera.py         diagnose a camera that will not work
-├── tests/
-└── docs/                       ADR, feature parity, screenshots
-```
+Catalogue data from the
+[free-programming-books](https://github.com/EbookFoundation/free-programming-books)
+project by the Free Ebook Foundation, used under CC BY 4.0. Nothing is
+mirrored here — every resource links to whoever publishes it.
 
 ## License
 

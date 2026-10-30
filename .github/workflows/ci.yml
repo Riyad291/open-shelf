@@ -71,20 +71,21 @@ jobs:
           TEST_DATABASE_URL: ${{ matrix.database == 'postgresql' && 'postgresql+psycopg://postgres:postgres@localhost:5432/bookstore_test' || '' }}
         run: pytest tests/ -v
 
-      # The concurrency tests skip where there is no row locking. On
-      # PostgreSQL they must actually run: a skipped test is not a passing
-      # one, and these are the tests that justify the database.
-      - name: Concurrency tests must not have been skipped
+      # The concurrent-import test skips where writers cannot run at once. On
+      # PostgreSQL it must actually run: a skipped test is not a passing one.
+      # (An earlier version of this check used `grep -qv skipped`, which
+      # succeeds whenever any line lacks the word -- so it could never fail.)
+      - name: Concurrency test must not have been skipped
         if: matrix.database == 'postgresql'
         env:
           TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/bookstore_test
         run: |
-          output=$(pytest tests/test_concurrency.py -q 2>&1)
+          output=$(pytest tests/test_ingest_pipeline.py::TestConcurrentImports -q -rs 2>&1)
           echo "$output"
-          echo "$output" | grep -qv "skipped" || {
-            echo "::error::The concurrency tests skipped on PostgreSQL."
+          if echo "$output" | grep -q "skipped"; then
+            echo "::error::The concurrency test skipped on PostgreSQL."
             exit 1
-          }
+          fi
 
   conformance:
     name: Specification conformance

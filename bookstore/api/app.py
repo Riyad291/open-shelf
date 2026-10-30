@@ -58,7 +58,7 @@ def create_app(database: Optional[str] = None,
         Base.metadata.create_all(engine())
 
     app = FastAPI(
-        title="Inkwell & Co. Smart Bookstore API",
+        title="Open Shelf API",
         version="2.0.0",
         description=DESCRIPTION,
     )
