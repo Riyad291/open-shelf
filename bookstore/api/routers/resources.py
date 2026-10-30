@@ -31,7 +31,7 @@ def _out(resource: m.Resource) -> S.ResourceOut:
 def browse(topic: Optional[str] = None, media: Optional[str] = None,
            language: Optional[str] = None,
            q: Optional[str] = Query(None, max_length=200),
-           sort: str = Query("title", pattern="^(title|newest|popular)$"),
+           sort: str = Query("title", pattern="^(relevance|title|newest|popular)$"),
            limit: int = Query(40, ge=1, le=100),
            offset: int = Query(0, ge=0),
            session: Session = Depends(db_session)):

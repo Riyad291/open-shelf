@@ -10,10 +10,14 @@ from __future__ import annotations
 
 from typing import List, Optional, Tuple
 
-from sqlalchemy import func, or_, select, update
+from sqlalchemy import func, literal_column, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from ..db import models as m
+
+# The generated full-text column on PostgreSQL (see db/models.py). Not a
+# mapped attribute, so it is named directly.
+SEARCH_VECTOR = literal_column("resources.search_vector")
 
 SORTS = {
     "title": m.Resource.title.asc(),
@@ -30,6 +34,13 @@ def list_resources(session: Session, *, topic: Optional[str] = None,
                    offset: int = 0) -> Tuple[List[m.Resource], int]:
     """One page of resources and the total that match, for pagination."""
 
+    query = (query or "").strip()
+    full_text = (bool(query)
+                 and session.get_bind().dialect.name == "postgresql")
+    # websearch_to_tsquery accepts what people type -- quotes, "or", a
+    # leading minus -- and never raises on odd input, unlike to_tsquery.
+    tsquery = func.websearch_to_tsquery("english", query) if full_text else None
+
     def narrow(statement):
         # Shared by the count and the page, so the two can never disagree.
         if not include_dead:
@@ -38,7 +49,12 @@ def list_resources(session: Session, *, topic: Optional[str] = None,
             statement = statement.where(m.Resource.language == language)
         if media:
             statement = statement.where(m.Resource.media.ilike("%" + media + "%"))
-        if query:
+        if query and full_text:
+            statement = statement.where(SEARCH_VECTOR.op("@@")(tsquery))
+        elif query:
+            # SQLite has no full-text column. ILIKE with a leading wildcard
+            # reads every row, which is fine at a few thousand rows and is
+            # why PostgreSQL does not use it (tools/bench_search.py).
             like = "%" + query.strip() + "%"
             statement = statement.where(or_(
                 m.Resource.title.ilike(like),
@@ -53,7 +69,12 @@ def list_resources(session: Session, *, topic: Optional[str] = None,
 
     total = session.scalar(narrow(select(func.count(m.Resource.id))))
 
-    order = SORTS.get(sort, SORTS["title"])
+    if sort == "relevance" and full_text:
+        # Title matches outrank author matches, which outrank description
+        # matches: the weights A, B, C set in the generated column.
+        order = func.ts_rank(SEARCH_VECTOR, tsquery).desc()
+    else:
+        order = SORTS.get(sort, SORTS["title"])
     page = session.scalars(
         narrow(select(m.Resource))
         .options(selectinload(m.Resource.topics)

@@ -120,3 +120,38 @@ class TestQueryCost:
             return len(counted)
 
         assert statements_for(1) == statements_for(50)
+
+
+class TestFullTextSearch:
+    """PostgreSQL only: the generated tsvector column and its GIN index."""
+
+    @pytest.fixture()
+    def library(self, session, supports_row_locks):
+        if session.get_bind().dialect.name != "postgresql":
+            pytest.skip("full-text search is PostgreSQL only")
+        source = get_or_create_source(session, "fts", name="FTS Source")
+        reconcile(session, source, [
+            ParsedResource(external_id="p", title="Programming Rust",
+                           url="https://example.org/p", authors="Jim Blandy"),
+            ParsedResource(external_id="t", title="Zero Trust Networks",
+                           url="https://example.org/t", authors="Evan Gilman"),
+            ParsedResource(external_id="d", title="Systems Notes",
+                           url="https://example.org/d",
+                           description="Examples written in Rust."),
+        ])
+        session.commit()
+
+    def test_words_match_not_substrings(self, client, library):
+        """ILIKE '%rust%' also matches "Trust". A word search does not."""
+        titles = {r["title"] for r in
+                  client.get("/api/resources?q=rust").json()["items"]}
+        assert titles == {"Programming Rust", "Systems Notes"}
+
+    def test_word_forms_match(self, client, library):
+        body = client.get("/api/resources?q=programs").json()
+        assert [r["title"] for r in body["items"]] == ["Programming Rust"]
+
+    def test_a_title_match_outranks_a_description_match(self, client,
+                                                        library):
+        body = client.get("/api/resources?q=rust&sort=relevance").json()
+        assert body["items"][0]["title"] == "Programming Rust"

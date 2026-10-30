@@ -24,7 +24,7 @@ const state = {
   session: { signed_in: false, role: "VS", role_name: "Visitor" },
   page: { offset: 0, limit: 24, total: 0 },
   filter: { axis: "categories", value: null },
-  library: { q: "", topic: null, sort: "title", offset: 0, limit: 30, total: 0 },
+  library: { q: "", topic: null, sort: "relevance", offset: 0, limit: 30, total: 0 },
   camera: { stream: null, mode: null, shots: [] },
 };
 

@@ -24,7 +24,7 @@ from typing import List, Optional
 
 from sqlalchemy import (
     Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, Numeric,
-    String, Text, UniqueConstraint, func,
+    DDL, String, Text, UniqueConstraint, event, func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -397,6 +397,34 @@ class Resource(Base, TimestampMixin):
             "'interactive')", name="ck_resource_kind"),
         Index("ix_resources_source_dead", "source_id", "dead"),
     )
+
+
+# Full-text search, PostgreSQL only.
+#
+# A generated column holds each row's search document -- title weighted
+# highest, then authors, then description -- and a GIN index makes matching
+# against it an index lookup. Measured at 101,065 rows: ILIKE '%term%' read
+# every row in 239.5 ms; this returned the same rows in 2.0 ms
+# (tools/bench_search.py reproduces it).
+#
+# It is not a mapped column because SQLite has no tsvector: declaring it on
+# the model would break the SQLite schema. Instead the same DDL runs after
+# the table is created on PostgreSQL (tests and create_all), and the
+# migration adds it to existing databases. alembic/env.py is told to ignore
+# it, so `alembic check` does not report it as drift.
+SEARCH_VECTOR_COLUMN = (
+    "ALTER TABLE resources ADD COLUMN search_vector tsvector "
+    "GENERATED ALWAYS AS ("
+    "setweight(to_tsvector('english', coalesce(title, '')), 'A') || "
+    "setweight(to_tsvector('english', coalesce(authors, '')), 'B') || "
+    "setweight(to_tsvector('english', coalesce(description, '')), 'C')"
+    ") STORED")
+SEARCH_VECTOR_INDEX = (
+    "CREATE INDEX ix_resources_search ON resources USING gin (search_vector)")
+
+for _statement in (SEARCH_VECTOR_COLUMN, SEARCH_VECTOR_INDEX):
+    event.listen(Resource.__table__, "after_create",
+                 DDL(_statement).execute_if(dialect="postgresql"))
 
 
 class Topic(Base, TimestampMixin):

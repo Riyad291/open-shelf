@@ -28,6 +28,14 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 
+# Objects that exist in the database on purpose but not on the models:
+# the full-text search column and its index (see db/models.py).
+UNMODELLED = {"search_vector", "ix_resources_search"}
+
+
+def include_object(obj, name, type_, reflected, compare_to):
+    return name not in UNMODELLED
+
 
 def run_migrations_offline() -> None:
     context.configure(
@@ -36,6 +44,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
+        include_object=include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -55,6 +64,7 @@ def run_migrations_online() -> None:
             # Without this, changing a column's type is silently not detected
             # and autogenerate produces an empty migration.
             compare_type=True,
+            include_object=include_object,
             # SQLite cannot ALTER most things in place. Batch mode rebuilds
             # the table instead, so the same migration runs on both backends.
             render_as_batch=connection.dialect.name == "sqlite",
