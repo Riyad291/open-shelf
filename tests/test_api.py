@@ -455,3 +455,83 @@ class TestBiometricRoutes:
             files=[("frames", ("f.png", b"not-an-image", "image/png"))])
         assert response.status_code == 409
         assert "enrolled" in response.json()["detail"].lower()
+
+
+class TestModerationCannotBeBypassed:
+    """Specification item 7's warning ladder applies to every route that
+    accepts a comment, not only the one that creates it.
+
+    Before this was fixed, PATCH /api/reviews/{id} screened the text and
+    refused a blocked edit without issuing a warning. Posting one clean
+    review and then editing it was an unlimited supply of blocked comments
+    at no cost, which made the ladder decorative.
+    """
+
+    def _taboo(self, config):
+        return " ".join(config.taboo_words[:5])
+
+    def test_a_blocked_edit_issues_a_warning(
+            self, client, session, config, make_book, make_user, sign_in):
+        book = make_book()
+        person = make_user("editor")
+        session.commit()
+        head = sign_in("editor")
+
+        created = client.post("/api/books/%d/reviews" % book.id, headers=head,
+                              json={"stars": 5, "comment": "A fine book."})
+        assert created.status_code == 200, created.text
+        review_id = created.json()["review"]["id"]
+
+        before = person.warnings
+        response = client.patch("/api/reviews/%d" % review_id, headers=head,
+                                json={"comment": self._taboo(config)})
+        assert response.status_code == 400
+
+        session.expire_all()
+        after = session.get(type(person), person.id).warnings
+        assert after == before + 1, (
+            "a blocked edit must cost a warning, as a blocked post does")
+
+    def test_repeated_blocked_edits_eventually_suspend(
+            self, client, session, config, make_book, make_user, sign_in):
+        book = make_book()
+        person = make_user("persistent")
+        session.commit()
+        head = sign_in("persistent")
+
+        created = client.post("/api/books/%d/reviews" % book.id, headers=head,
+                              json={"stars": 4, "comment": "Good."})
+        review_id = created.json()["review"]["id"]
+
+        model = type(person)
+        for _ in range(config.warning_limit + 1):
+            client.patch("/api/reviews/%d" % review_id, headers=head,
+                         json={"comment": self._taboo(config)})
+
+        session.expire_all()
+        fresh = session.get(model, person.id)
+        assert fresh.suspended or fresh.role != m.VIP, (
+            "the ladder must reach its end through the edit route too")
+
+    def test_a_rejected_edit_does_not_apply_the_rating(
+            self, client, session, config, make_book, make_user, sign_in):
+        """An edit is one act: if the comment is refused, the stars that
+        travelled with it are refused too."""
+        book = make_book()
+        make_user("partial")
+        session.commit()
+        head = sign_in("partial")
+
+        created = client.post("/api/books/%d/reviews" % book.id, headers=head,
+                              json={"stars": 5, "comment": "Excellent."})
+        review_id = created.json()["review"]["id"]
+
+        response = client.patch(
+            "/api/reviews/%d" % review_id, headers=head,
+            json={"stars": 1, "comment": self._taboo(config)})
+        assert response.status_code == 400
+
+        reviews = client.get("/api/books/%d/reviews" % book.id).json()
+        still = [r for r in reviews if r["id"] == review_id]
+        assert still and still[0]["stars"] == 5, (
+            "the rating from a refused edit must not survive")

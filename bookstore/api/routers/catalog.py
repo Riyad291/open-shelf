@@ -256,21 +256,47 @@ def edit_review(review_id: int, body: S.ReviewUpdateIn,
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such review.")
 
     changes = body.model_dump(exclude_unset=True)
+    outcome = None
+
+    # The comment is screened before anything is modified. An edit carrying
+    # both a new rating and a blocked comment must not leave the rating
+    # applied: the whole edit is refused, as one act.
+    if "comment" in changes:
+        config = runtime.config()
+        book = session.get(m.Book, review.book_id)
+
+        # An edit is a new comment, so it costs what a new comment costs.
+        # This endpoint used to screen the text itself and merely refuse a
+        # blocked one, which made the ladder in item 7 avoidable: post one
+        # clean review, then edit it with taboo words forever.
+        outcome = review_service.screen_or_warn(
+            session, user, changes["comment"], config,
+            book.title if book else "a book")
+
+        if outcome.blocked:
+            detail = ("That edit was blocked: it contains %d taboo words."
+                      % outcome.hits)
+            if outcome.warning_issued:
+                detail += (" You have received a warning (%d of %d allowed)."
+                           % (user.warnings, config.warning_limit))
+            if outcome.suspended:
+                detail += " Your account has been suspended."
+            elif outcome.demoted:
+                detail += " Your VIP status has been revoked."
+
+            # Committed before raising, deliberately. The session dependency
+            # rolls back when a request raises, which would undo the warning
+            # and leave the API claiming a penalty it did not apply -- the
+            # same mistake that made refresh-token reuse detection useless.
+            session.commit()
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, detail)
+
     if "stars" in changes:
         review.stars = changes["stars"]
-    if "comment" in changes:
-        from ...moderation import screen_comment
-        config = runtime.config()
-        screened = screen_comment(changes["comment"], config.taboo_words,
-                                  config.max_taboo_before_block)
-        if screened.blocked:
-            raise HTTPException(
-                status.HTTP_400_BAD_REQUEST,
-                "That edit was blocked: it contains %d taboo words."
-                % screened.hits)
-        review.raw_comment = screened.original
-        review.comment = screened.masked
-        review.taboo_hits = screened.hits
+    if outcome is not None:
+        review.raw_comment = outcome.screened.original
+        review.comment = outcome.screened.masked
+        review.taboo_hits = outcome.screened.hits
 
     session.flush()
     return present.review_out(review)

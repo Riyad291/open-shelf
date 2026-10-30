@@ -60,6 +60,70 @@ def already_reviewed(session: Session, user: m.User, book_id: int) -> bool:
     ).scalar_one())
 
 
+class Screening:
+    """The result of screening a comment, including what it cost the author.
+
+    Posting a comment and editing one are the same act as far as moderation
+    is concerned, so they go through here rather than each calling
+    ``screen_comment`` and deciding for themselves what to do about it.
+    """
+
+    def __init__(self, screened, *, warning_issued: bool = False,
+                 suspended: bool = False, demoted: bool = False,
+                 warnings_total: int = 0):
+        self.screened = screened
+        self.warning_issued = warning_issued
+        self.suspended = suspended
+        self.demoted = demoted
+        self.warnings_total = warnings_total
+
+    @property
+    def blocked(self) -> bool:
+        return self.screened.blocked
+
+    @property
+    def hits(self) -> int:
+        return self.screened.hits
+
+
+def screen_or_warn(session: Session, user: Optional[m.User], comment: str,
+                   config, context: str) -> Screening:
+    """Screen a comment and apply the warning ladder if it is blocked.
+
+    ``context`` is the human-readable thing being commented on, used in the
+    warning's recorded reason.
+
+    This exists because the edit endpoint used to screen a comment itself and
+    simply refuse a blocked one. That made the ladder in specification item 7
+    avoidable: post one clean review, then edit it with taboo words as often
+    as you like -- blocked every time, warned never. Measured before the fix:
+    five blocked edits produced zero warnings, where a single blocked post
+    produced one.
+    """
+    screened = screen_comment(comment, config.taboo_words,
+                              config.max_taboo_before_block)
+
+    if not screened.blocked:
+        return Screening(screened)
+
+    # A visitor has no account to carry a warning. The refusal is logged
+    # instead, so the moderation report still sees it.
+    if user is None:
+        session.add(m.Event(
+            kind="blocked_visitor_comment", user_id=None,
+            detail="%d taboo words on %s" % (screened.hits, context)))
+        session.flush()
+        return Screening(screened)
+
+    suspended, demoted = accounts.apply_warning(
+        session, user,
+        "blocked comment on '%s' (%d taboo words)" % (context, screened.hits),
+        config)
+
+    return Screening(screened, warning_issued=True, suspended=suspended,
+                     demoted=demoted, warnings_total=user.warnings)
+
+
 def submit(session: Session, user: Optional[m.User], book: m.Book,
            stars: int, comment: str, config) -> ReviewOutcome:
     try:
@@ -69,22 +133,27 @@ def submit(session: Session, user: Optional[m.User], book: m.Book,
     if not 1 <= stars <= 5:
         raise ReviewError("A rating must be between 1 and 5 stars.")
 
-    screened = screen_comment(comment, config.taboo_words,
-                              config.max_taboo_before_block)
-
-    # -- a visitor, with no account to carry a warning --------------------
+    # Eligibility is settled before the comment is screened, so that a
+    # refused author is never also warned for the same attempt.
     if user is None:
         if not config.flag("visitors_may_review"):
             raise ReviewError(
                 "Please sign in to post a rating -- reviews are tied to an "
                 "account so that moderation warnings can be applied.")
+    else:
+        allowed, why = accounts.can_sign_in(user)
+        if not allowed:
+            raise ReviewError(why)
+        if already_reviewed(session, user, book.id):
+            raise ReviewError("You have already reviewed this book.")
 
+    outcome = screen_or_warn(session, user, comment, config, book.title)
+    screened = outcome.screened
+
+    # -- a visitor, with no account to carry a warning --------------------
+    if user is None:
         if screened.blocked:
-            # Nothing to warn, so the comment is simply refused and logged.
-            session.add(m.Event(
-                kind="blocked_visitor_comment", user_id=None,
-                detail="%d taboo words on book %d" % (screened.hits, book.id)))
-            session.flush()
+            # screen_or_warn has already logged the refusal.
             return ReviewOutcome(
                 None,
                 "That comment was blocked: it contains %d taboo words."
@@ -106,13 +175,6 @@ def submit(session: Session, user: Optional[m.User], book: m.Book,
         return ReviewOutcome(review, message, taboo_hits=screened.hits)
 
     # -- a signed-in customer ---------------------------------------------
-    allowed, why = accounts.can_sign_in(user)
-    if not allowed:
-        raise ReviewError(why)
-
-    if already_reviewed(session, user, book.id):
-        raise ReviewError("You have already reviewed this book.")
-
     purchased = has_purchased(session, user, book.id)
     weight = Decimal(str(config.purchaser_weight if purchased
                          else config.normal_weight))
@@ -127,25 +189,20 @@ def submit(session: Session, user: Optional[m.User], book: m.Book,
     session.flush()
 
     if screened.blocked:
-        suspended, demoted = accounts.apply_warning(
-            session, user,
-            "blocked comment on '%s' (%d taboo words)"
-            % (book.title, screened.hits), config)
-
         message = ("Your comment was blocked for containing %d taboo words. "
                    "You have received a warning (%d of %d allowed)."
                    % (screened.hits, user.warnings, config.warning_limit))
-        if suspended:
+        if outcome.suspended:
             message += " Your account has been suspended."
-        elif demoted:
+        elif outcome.demoted:
             message += (" Your VIP status has been revoked; you are now a "
                         "registered customer.")
 
         return ReviewOutcome(
             review, message, ok=False, blocked=True,
             taboo_hits=screened.hits, warning_issued=True,
-            warnings_total=user.warnings, suspended=suspended,
-            demoted=demoted)
+            warnings_total=user.warnings, suspended=outcome.suspended,
+            demoted=outcome.demoted)
 
     message = "Review posted."
     if screened.hits:
