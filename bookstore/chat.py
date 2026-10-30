@@ -31,11 +31,10 @@ from typing import Callable, List, Optional, Tuple
 from . import models
 from .catalog import Catalog
 from .config import Config
-from .finance import FinanceService
 from .llm import OllamaClient
+from .ports import CatalogueRules, FinanceReport
 from .rag import Retriever
 from .recommend import Recommender
-from .rules import RulesEngine
 from .storage import Storage
 
 SOURCE_STORE = "store data"
@@ -82,9 +81,10 @@ class ChatService:
         self,
         storage: Storage,
         config: Config,
-        rules: RulesEngine,
+        rules: CatalogueRules,
         catalog: Catalog,
         recommender: Recommender,
+        finance: FinanceReport,
         retriever: Optional[Retriever] = None,
         llm: Optional[OllamaClient] = None,
     ):
@@ -95,7 +95,9 @@ class ChatService:
         self.recommender = recommender
         self.retriever = retriever or Retriever(storage)
         self.llm = llm or OllamaClient(config)
-        self.finance = FinanceService(storage)
+        # Required, not built here: see ports.FinanceReport for what went
+        # wrong when this class made its own.
+        self.finance = finance
         self.intents = self._build_intents()
 
     # ======================================================================

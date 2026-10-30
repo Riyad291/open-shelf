@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from . import models
-from .rules import RulesEngine
+from .ports import RatingRules
 from .storage import Storage
 
 # Scoring weights, kept here so they are easy to tune in one place.
@@ -41,7 +41,7 @@ class Recommendation:
 
 
 class Recommender:
-    def __init__(self, storage: Storage, rules: RulesEngine):
+    def __init__(self, storage: Storage, rules: RatingRules):
         self.db = storage
         self.rules = rules
 

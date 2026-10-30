@@ -1,46 +1,22 @@
-"""Populate the store with demo data.
+"""Demo book data and the images that go with it.
 
-Run once before the first demo:
-
-    python tools/seed.py                 # accounts, books, covers, reviews
-    python tools/seed.py --gutenberg     # also download real public-domain texts
-    python tools/seed.py --demo-biometrics   # synthetic face/voice samples
-    python tools/seed.py --reset         # wipe data/ first
-
-What it creates
----------------
-*   One super-user and five customers, including one already suspended for a
-    negative balance and one VIP, so every state in the spec is visible
-    immediately.
-*   Sixteen public-domain titles across eight categories and four centuries, so
-    browsing by category, author and decade all have something to show.
-*   A generated cover image per book (Pillow), plus two "internal figure"
-    images for some titles, which is what picture search indexes.
-*   Reviews engineered so that one book lands on the no-order list and one on
-    the to-order list, and one comment is blocked by the taboo filter -- the
-    grader can see requirements 8 and 9 working without typing anything.
-
-``--gutenberg`` downloads the real text of each title from gutenberg.org
-(spec note 4).  Without it, each book gets a short placeholder text file, and
-everything except full-text keyword search works exactly the same.
+This file used to be the v1 seeder, which wrote accounts, books and
+reviews into JSON files. That half is gone; the database is seeded by
+``tools/seed_db.py``. This is what was worth keeping: the sixteen
+public-domain titles, their generated covers and figures, and the
+Gutenberg download.
 """
 
 from __future__ import annotations
 
-import argparse
 import os
 import random
-import shutil
 import sys
 import wave
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from bookstore import models                      # noqa: E402
-from bookstore.config import Config, ensure_dirs  # noqa: E402
-from bookstore.catalog import Catalog             # noqa: E402
-from bookstore.rules import RulesEngine           # noqa: E402
-from bookstore.storage import Storage             # noqa: E402
+from bookstore.storage import Storage            # noqa: E402
 
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -311,7 +287,7 @@ def placeholder_text(title: str, author: str, category: str, description: str) -
         "This is a placeholder text file. The real public-domain text was not\n"
         "downloaded, so full-text keyword search for this title only covers the\n"
         "metadata and description above. Run:\n\n"
-        "    python tools/seed.py --gutenberg\n\n"
+        "    python tools/seed_db.py --gutenberg\n\n"
         "on a machine with internet access to replace this file with the\n"
         "complete text from gutenberg.org.\n"
         % (title, author, category, description)
@@ -379,228 +355,3 @@ def make_demo_biometrics(storage: Storage, user_ids) -> str:
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description="Seed the smart bookstore with demo data.")
-    parser.add_argument("--reset", action="store_true",
-                        help="delete data/users.json, books.json, reviews.json, "
-                             "transactions.json, events.json and all covers first")
-    parser.add_argument("--gutenberg", action="store_true",
-                        help="download real public-domain texts from gutenberg.org")
-    parser.add_argument("--demo-biometrics", action="store_true",
-                        help="create synthetic face/voice samples for a no-hardware demo")
-    parser.add_argument("--no-covers", action="store_true",
-                        help="skip cover and figure generation")
-    args = parser.parse_args()
-
-    ensure_dirs()
-    storage = Storage()
-
-    if args.reset:
-        for name in ("users.json", "books.json", "reviews.json",
-                     "transactions.json", "events.json", "image_index.json"):
-            path = os.path.join(storage.data_dir, name)
-            if os.path.exists(path):
-                os.remove(path)
-        for folder in (storage.covers_dir, storage.figures_dir):
-            shutil.rmtree(folder, ignore_errors=True)
-            os.makedirs(folder, exist_ok=True)
-        for folder in (storage.faces_dir, storage.voices_dir):
-            shutil.rmtree(folder, ignore_errors=True)
-            os.makedirs(folder, exist_ok=True)
-        for name in ("face_model.json", "voice_model.json"):
-            path = os.path.join(storage.data_dir, "biometrics", name)
-            if os.path.exists(path):
-                os.remove(path)
-        storage = Storage()
-        print("Reset: cleared existing data.")
-
-    if storage.users or storage.books:
-        print("Data already present (%d users, %d books). Use --reset to start over."
-              % (len(storage.users), len(storage.books)))
-        if not args.gutenberg and not args.demo_biometrics:
-            return 0
-
-    config = Config()
-    rules = RulesEngine(storage, config)
-    catalog = Catalog(storage)
-
-    # -- accounts ----------------------------------------------------------
-    created_users = {}
-    if not storage.users:
-        specs = [
-            ("margaret", "admin123", models.SUPER_USER, 0.0, "Margaret Osei"),
-            ("alice", "alice123", models.REGISTERED, 60.0, "Alice Nakamura"),
-            ("bob", "bob12345", models.REGISTERED, 8.00, "Bob Oyelaran"),
-            ("carol", "carol123", models.VIP, 240.0, "Carol Whitfield"),
-            ("dave", "dave1234", models.REGISTERED, 0.50, "Dave Mensah"),
-            ("erin", "erin1234", models.REGISTERED, 25.0, "Erin Kovac"),
-        ]
-        for username, password, role, balance, display in specs:
-            user = rules.create_account(username, password, role=role,
-                                        balance=balance, display_name=display)
-            created_users[username] = user
-        print("Created %d accounts." % len(specs))
-    else:
-        for user in storage.list_users():
-            created_users[user["username"]] = user
-
-    # -- books -------------------------------------------------------------
-    if not storage.books:
-        for i, (title, author, category, year, price, stock, gid, desc) in enumerate(BOOKS):
-            cover_rel = ""
-            figures = []
-            if not args.no_covers and Image is not None:
-                cover_abs = os.path.join(storage.covers_dir, "b%03d.png" % (i + 1))
-                if make_cover(cover_abs, title, author, category, year, seed=i + 1):
-                    cover_rel = os.path.relpath(cover_abs, os.path.dirname(storage.data_dir))
-                # Give every third book two internal figures.
-                if i % 3 == 0:
-                    for f in (1, 2):
-                        fig_abs = os.path.join(storage.figures_dir,
-                                               "b%03d_fig%d.png" % (i + 1, f))
-                        if make_figure(fig_abs, title, category, f, seed=i + 1):
-                            figures.append(
-                                os.path.relpath(fig_abs, os.path.dirname(storage.data_dir))
-                            )
-
-            text_abs = os.path.join(storage.book_text_dir, "b%03d.txt" % (i + 1))
-            got_real = False
-            if args.gutenberg:
-                print("  downloading %-44s " % title[:44], end="", flush=True)
-                got_real = download_gutenberg(gid, text_abs)
-                print("ok" if got_real else "failed (placeholder used)")
-            if not got_real and not os.path.exists(text_abs):
-                os.makedirs(os.path.dirname(text_abs), exist_ok=True)
-                with open(text_abs, "w", encoding="utf-8") as handle:
-                    handle.write(placeholder_text(title, author, category, desc))
-
-            catalog.add_book(
-                title, author, category, year, price, stock=stock, description=desc,
-                cover_path=cover_rel,
-                figure_paths=figures,
-                text_path=os.path.relpath(text_abs, os.path.dirname(storage.data_dir)),
-            )
-        print("Created %d books%s." % (len(BOOKS),
-                                       "" if args.no_covers else " with covers"))
-    elif args.gutenberg:
-        for book in storage.list_books():
-            index = int(book["book_id"][1:]) - 1
-            if 0 <= index < len(BOOKS):
-                gid = BOOKS[index][6]
-                text_abs = os.path.join(storage.book_text_dir, "%s.txt" % book["book_id"])
-                print("  downloading %-44s " % book["title"][:44], end="", flush=True)
-                print("ok" if download_gutenberg(gid, text_abs) else "failed")
-
-    # -- browsing, purchases and reviews that exercise R8 and R9 -----------
-    if not storage.reviews:
-        _seed_activity(storage, config, rules, created_users)
-
-    # -- optional synthetic biometrics -------------------------------------
-    if args.demo_biometrics:
-        ids = [u["user_id"] for u in storage.list_users()][:4]
-        print(make_demo_biometrics(storage, ids))
-        from bookstore.biometrics import BiometricService
-        service = BiometricService(storage)
-        print(service.train_all())
-
-    storage.save_all()
-
-    print()
-    print("Seeded. Log in with:")
-    print("  margaret / admin123   (super-user)")
-    print("  alice    / alice123   (registered, $60 balance)")
-    print("  carol    / carol123   (VIP, 10% discount)")
-    print("  dave     / dave1234   (registered, $0.50 -- try buying something)")
-    print()
-    print("Start the app with:  python run.py")
-    return 0
-
-
-def _seed_activity(storage: Storage, config: Config, rules: RulesEngine, users) -> None:
-    """Create purchases and reviews that put two books on the order lists and
-    trip the taboo filter once, so requirements 7-10 are visible on first run."""
-    books = storage.list_books()
-    if not books or not users:
-        return
-
-    def user(name):
-        return storage.find_user_by_username(name)
-
-    # Browsing history, so personalised recommendations have something to work
-    # with on the very first login.
-    for name, indices in (("alice", [0, 1, 4, 5, 6]),
-                          ("carol", [7, 8, 9, 10]),
-                          ("erin", [14, 3, 0])):
-        account = user(name)
-        if not account:
-            continue
-        for i in indices:
-            if i < len(books):
-                rules.record_browse(account, books[i])
-
-    # Purchases.  Alice buys three, which leaves her one short of VIP -- a nice
-    # thing to demonstrate live.
-    for name, indices in (("alice", [0, 1, 4]),
-                          ("carol", [7, 10]),
-                          ("erin", [14])):
-        account = user(name)
-        if not account:
-            continue
-        for i in indices:
-            if i < len(books):
-                rules.purchase(account, books[i])
-
-    # Reviews.  Book 3 (Moby Dick) gets four low ratings -> no-order list.
-    # Book 4 (Alice) gets four high ratings -> to-order list.
-    low_book = books[2]
-    high_book = books[3]
-    reviewers = ["alice", "bob", "carol", "erin", "dave"]
-
-    low_comments = [
-        "Could not finish it. Far too long and the plot stalls for whole chapters.",
-        "I wanted to like this but the digressions lost me completely.",
-        "Overrated. The whaling chapters read like a technical manual.",
-        "Not for me at all. Gave up around halfway through.",
-    ]
-    for name, comment, stars in zip(reviewers, low_comments, [1, 2, 1, 2]):
-        account = user(name)
-        if account:
-            rules.submit_review(account, low_book, stars, comment)
-
-    high_comments = [
-        "Delightful from the first page. My daughter asks for it every night.",
-        "Much stranger and sharper than I remembered from childhood.",
-        "A perfect edition, and the wordplay still lands after a century.",
-        "Read it in one sitting. The logic jokes are better than the nonsense.",
-    ]
-    for name, comment, stars in zip(reviewers, high_comments, [5, 5, 4, 5]):
-        account = user(name)
-        if account:
-            rules.submit_review(account, high_book, stars, comment)
-
-    # One comment that trips the taboo filter: four taboo words means the
-    # comment is blocked and bob picks up a warning (R9).
-    bob = user("bob")
-    if bob and len(books) > 5:
-        rules.submit_review(
-            bob, books[5], 2,
-            "What a load of garbage. The translation is trash, the notes are "
-            "stupid, and whoever edited this is an idiot.",
-        )
-
-    # And one that is only masked, not blocked (two taboo words).
-    erin = user("erin")
-    if erin and len(books) > 6:
-        rules.submit_review(
-            erin, books[6], 4,
-            "The ending is a bit of a damn shame, but otherwise this is lovely.",
-        )
-
-    storage.save_all()
-    print("Seeded browsing, purchases and reviews (order lists and one blocked "
-          "comment are now populated).")
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

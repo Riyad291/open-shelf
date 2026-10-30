@@ -30,8 +30,8 @@ from bookstore.db.base import Base, configure, engine, session_factory  # noqa: 
 from bookstore.services import accounts, cart, checkout, reviews  # noqa: E402
 from bookstore.storage import Storage                            # noqa: E402
 
-from seed import BOOKS, download_gutenberg, make_cover, make_figure  # noqa: E402
-from seed import placeholder_text                                # noqa: E402
+from demo_books import BOOKS, download_gutenberg, make_cover, make_figure  # noqa: E402
+from demo_books import placeholder_text                                # noqa: E402
 
 
 #: username, display name, role, opening balance, what it demonstrates

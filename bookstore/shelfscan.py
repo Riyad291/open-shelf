@@ -57,7 +57,7 @@ except ImportError:  # pragma: no cover
 from . import imagesearch
 from .imagesearch import ImageIndex
 from .recommend import Recommendation, Recommender
-from .rules import RulesEngine
+from .ports import RatingRules
 
 #: Minimum width of a detected region, as a fraction of image width.  Narrower
 #: slivers are noise, not books.
@@ -154,7 +154,7 @@ class ShelfScanResult:
 
 class ShelfScanner:
     def __init__(self, image_index: ImageIndex, recommender: Recommender,
-                 rules: RulesEngine, models_dir: Optional[str] = None,
+                 rules: RatingRules, models_dir: Optional[str] = None,
                  config=None):
         self.index = image_index
         self.recommender = recommender

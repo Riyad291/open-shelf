@@ -354,9 +354,6 @@ def build_chat_service(session: Session, config, files, retriever, llm):
     service = ChatService(
         StoreFacade(session), config, RulesFacade(session, config),
         CatalogFacade(session, files), RecommenderFacade(session, config),
-        retriever, llm,
+        FinanceFacade(session, config), retriever, llm,
     )
-    # ChatService constructs its own FinanceService from the store it is
-    # given. Replace it with the SQL-backed one; see FinanceFacade.
-    service.finance = FinanceFacade(session, config)
     return service
