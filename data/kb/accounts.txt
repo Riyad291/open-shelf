@@ -1,0 +1,40 @@
+# Accounts and roles
+
+Anyone can browse, search and open every book without an account. Visitors
+can also rate a book and leave a comment.
+
+There are four kinds of user. A visitor is anyone not signed in. A member is
+anyone who has created an account. A trusted contributor is a member whose
+reviews have earned extra weight. The administrator manages the catalogue,
+the accounts and moderation.
+
+Creating an account is free and needs only a username and a password of at
+least four characters. No email address is required.
+
+# Becoming a trusted contributor
+
+A member becomes a trusted contributor automatically after writing three
+reviews that pass moderation. Blocked reviews do not count towards the three.
+
+A trusted contributor's star rating counts double in a book's average, and
+they can see the recommended and not-recommended lists in the assistant.
+
+Trusted status can be lost. A trusted contributor who collects more than two
+moderation warnings goes back to being a member and is not promoted again
+automatically.
+
+# Signing in with your face
+
+Members can sign in by looking at their camera instead of typing a password.
+To set it up, open your account page and enrol five photographs from your
+browser's camera. After that, choose "Sign in with your face" on the sign-in
+screen. The recogniser is trained only on the photographs you enrol.
+
+Your password always keeps working, so face sign-in is optional. You can
+remove your photographs from your account page at any time.
+
+# Suspension and reopening
+
+A member who collects more than two moderation warnings is suspended. A
+suspended account cannot sign in or post reviews. Only the administrator can
+reopen a suspended account, and may choose whether to clear its warnings.

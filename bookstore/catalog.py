@@ -63,6 +63,12 @@ def stem(token: str) -> str:
         if stripped == current:
             break
         current = stripped
+    # A final silent "e" is dropped last, so "store" and "stored" both end
+    # as "stor". Without this the bare word kept its "e" and its inflections
+    # did not: measured on the help files, "What data do you store?" could
+    # never match a passage about what is "stored".
+    if len(current) > 4 and current.endswith("e"):
+        current = current[:-1]
     return current
 
 

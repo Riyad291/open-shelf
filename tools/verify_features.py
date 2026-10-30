@@ -78,13 +78,13 @@ def main() -> int:
     os.makedirs(os.path.join(data_dir, "kb"), exist_ok=True)
 
     # A knowledge base, so item 9 has something to retrieve from.
-    with open(os.path.join(data_dir, "kb", "store.txt"), "w",
+    with open(os.path.join(data_dir, "kb", "help.txt"), "w",
               encoding="utf-8") as handle:
         handle.write(
-            "# Opening hours\n"
-            "Monday to Friday: 9:00 to 19:00.\n"
-            "Saturday: 10:00 to 18:00. Sunday: 12:00 to 17:00.\n\n"
-            "# The team\nMargaret runs the library and keeps the catalogue.\n")
+            "# Where the books come from\n"
+            "The catalogue is imported from free-programming-books, a\n"
+            "community list published under CC BY 4.0.\n\n"
+            "# Broken links\nReport a broken link on GitHub.\n")
 
     from fastapi.testclient import TestClient
 
@@ -329,7 +329,7 @@ def main() -> int:
 
     # ------------------------------------------------------------- item 9
     rag = client.post("/api/chat",
-                      json={"question": "What are your opening hours?"}).json()
+                      json={"question": "Where do the books come from?"}).json()
     off_topic = client.post(
         "/api/chat", json={"question": "What is the capital of Mongolia?"}).json()
     check(9, "Local knowledge base, RAG routing, source attribution",

@@ -1,0 +1,37 @@
+# Ratings and reviews
+
+Any book can be rated from one to five stars, with an optional comment.
+Visitors may rate books too; a signed-in member's rating is kept with their
+account, and each member can review a book once. Members can edit their own
+review later.
+
+A book's displayed average is weighted: a trusted contributor's rating counts
+twice, everyone else's once.
+
+# Moderation and taboo words
+
+Comments are checked against a list of taboo words that the administrator
+maintains. A taboo word in a comment is replaced with asterisks and the rest
+of the comment is posted.
+
+A comment containing more than three taboo words is blocked entirely, and its
+author receives a warning. Editing a review is checked the same way as
+posting one, so a blocked edit also earns a warning. The original text of a
+blocked comment is kept so the administrator can review it.
+
+More than two warnings suspends a member, or returns a trusted contributor to
+member.
+
+# Recommended and not-recommended lists
+
+A book with more than three ratings and a weighted average above four stars
+goes on the recommended list. A book with more than three ratings and a
+weighted average below two stars goes on the not-recommended list, and is
+never suggested to anyone.
+
+# Personal recommendations
+
+The shelf page shows three picks. A visitor sees the books readers here have
+reviewed most. A signed-in member sees picks based on the subjects and
+authors of the books they have browsed and reviewed, with a sentence saying
+why each was chosen.

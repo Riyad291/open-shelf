@@ -1,0 +1,41 @@
+# Searching the library
+
+The library page searches titles, authors and descriptions. On the full site
+it matches whole words and their forms, so a search for "programs" also finds
+"programming", and results can be sorted by best match, title, newest or most
+opened. Topic buttons narrow the list to one subject or language.
+
+# Searching by picture
+
+On the search page you can upload a photograph of a book cover, and the site
+finds the matching book by comparing the picture with the covers and
+illustrations it knows.
+
+# Shelf Scan
+
+Shelf Scan takes a photograph of a whole bookshelf, finds the individual
+books in it, names the ones it recognises, and recommends more in the same
+vein.
+
+# The assistant
+
+The assistant answers questions about this site from these help files, and
+says where each answer came from. Some questions depend on who is asking:
+members can ask about their own reviews and standing, trusted contributors
+about the recommendation lists, and the administrator about catalogue
+statistics, accounts and moderation.
+
+Questions the help files do not cover can be passed to a language model
+running on the same machine through Ollama, and the answer is labelled as
+coming from the model. If no model is running, the assistant says so rather
+than guessing.
+
+# Privacy
+
+Open Shelf stores your username, a salted and hashed password, the reviews you
+write, the books you look at, and any face photographs you enrol. Photographs
+are stored on the server only for signing in and are never shared.
+
+Passwords are stored with PBKDF2, so the password itself is never kept. Your
+questions to the assistant are answered on the same server; nothing is sent
+to an outside AI service.

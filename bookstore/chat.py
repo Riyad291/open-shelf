@@ -17,7 +17,10 @@ Two orthogonal jobs happen here.
    ``[via RAG]`` or ``[via LLM]``.
 
 Answer sources, in priority order:
-    structured store data  ->  labelled [store data]
+    structured site data   ->  labelled [store data]
+
+("store data" is the label the API has always used for answers computed
+from the database; it is kept so the contract does not change.)
     local knowledge base   ->  labelled [via RAG]
     Ollama                 ->  labelled [via LLM]
 """
@@ -209,7 +212,7 @@ class ChatService:
         """Answer one question for one user."""
         question = (question or "").strip()
         if not question:
-            return ChatAnswer("Ask me anything about the store or our books.",
+            return ChatAnswer("Ask me anything about Open Shelf or its books.",
                               SOURCE_STORE)
 
         role = (user or {}).get("role", models.VISITOR)
@@ -217,7 +220,7 @@ class ChatService:
         if re.search(r"\b(help|what can you do|commands?)\b", question.lower()):
             return ChatAnswer(self._help_text(role), SOURCE_STORE)
 
-        # --- 1. structured store data, gated by role ---------------------
+        # --- 1. structured site data, gated by role ----------------------
         matched = [i for i in self.intents if i.matches(question)]
         if matched:
             # Most privileged matching intent first, so "how much money have I
@@ -239,10 +242,28 @@ class ChatService:
             else:
                 # R3: lower tiers get no meaningful result, and are told why.
                 needed = matched[0].min_role
-                return ChatAnswer(
-                    self._denial_text(role, needed, matched[0]),
-                    SOURCE_DENIED, denied_for_role=True,
-                )
+                denial = self._denial_text(role, needed, matched[0])
+
+                # But a question about how a rule works is not a request for
+                # restricted data. "How do I become a trusted contributor?"
+                # matches the trusted-only intent, and used to tell a visitor
+                # "access denied" although the public help files answer it.
+                # If they do, answer from them and still say what is
+                # withheld; denied_for_role stays true, because it was.
+                threshold = float(self.cfg.get("rag_min_similarity") or 0.15)
+                top_k = int(self.cfg.get("rag_top_k") or 3)
+                is_local, hits = self.retriever.is_local_question(
+                    question, threshold, top_k)
+                if is_local:
+                    relevant = [h for h in hits if h.rare_matches] or hits[:1]
+                    context, used = self.retriever.context_for(
+                        question, top_k=top_k, hits=relevant)
+                    answer = self._answer_from_rag(question, context, used,
+                                                   hits[0].score)
+                    answer.text += "\n\n" + denial
+                    answer.denied_for_role = True
+                    return answer
+                return ChatAnswer(denial, SOURCE_DENIED, denied_for_role=True)
 
         # --- 2. RAG over the local knowledge base (R13, step one) --------
         top_k = int(self.cfg.get("rag_top_k") or 3)
@@ -274,23 +295,23 @@ class ChatService:
         # is not up, quote the best chunk directly so the feature still works.
         if self.llm.is_up():
             prompt = (
-                "Answer the customer's question using ONLY the store information "
+                "Answer the reader's question using ONLY the site information "
                 "below. Be concise (2-4 sentences). If the information does not "
                 "cover the question, say so plainly.\n\n"
-                "STORE INFORMATION:\n%s\n\nQUESTION: %s\nANSWER:" % (context, question)
+                "SITE INFORMATION:\n%s\n\nQUESTION: %s\nANSWER:" % (context, question)
             )
             reply = self.llm.generate(
                 prompt,
                 system=(
-                    "You are the assistant for a small bookstore. You answer "
-                    "strictly from the provided store information and never "
-                    "invent details."
+                    "You are the assistant for Open Shelf, a free library of "
+                    "technology books. You answer strictly from the provided "
+                    "site information and never invent details."
                 ),
             )
             if reply.ok:
                 return ChatAnswer(
                     reply.text
-                    + "\n\n(Answered from the store's own files, rephrased by the "
+                    + "\n\n(Answered from Open Shelf's help files, rephrased by the "
                       "local model '%s'.)" % reply.model,
                     SOURCE_RAG, citations=citations, rag_score=best,
                 )
@@ -299,7 +320,7 @@ class ChatService:
         if len(hits) > 1:
             text += "\n\nAlso relevant:\n" + hits[1].chunk.text.strip()[:400]
         return ChatAnswer(
-            text + "\n\n(Retrieved directly from the store's local files; "
+            text + "\n\n(Retrieved directly from Open Shelf's help files; "
                    "match score %.2f.)" % best,
             SOURCE_RAG, citations=citations, rag_score=best,
         )
@@ -308,7 +329,7 @@ class ChatService:
         ok, status = self.llm.status()
         if not ok:
             return ChatAnswer(
-                "That question is not covered by the store's local files, so it "
+                "That question is not covered by Open Shelf's help files, so it "
                 "needs the language model -- but it is not available right now.\n\n"
                 + status,
                 SOURCE_ERROR, rag_score=best_rag,
@@ -321,16 +342,17 @@ class ChatService:
             models.REGISTERED: "Answer in at most 4 sentences.",
             models.VIP: "Answer in up to 6 sentences, and add one reading suggestion.",
             models.SUPER_USER: "Answer thoroughly, and note any operational "
-                               "implication for the bookstore.",
+                               "implication for the site.",
         }.get(role, "Answer in at most 2 short sentences.")
 
         reply = self.llm.generate(
             "QUESTION: %s\n\n%s" % (question, budget),
             system=(
-                "You are the assistant for a small independent bookstore. You are "
-                "talking to a %s. Be helpful and factual. If the question is about "
-                "this specific store's policies, hours, staff or finances, say that "
-                "you do not have that information rather than guessing."
+                "You are the assistant for Open Shelf, a free library of "
+                "technology books. You are talking to a %s. Be helpful and "
+                "factual. If the question is about this site's own rules, "
+                "accounts or data, say that you do not have that information "
+                "rather than guessing."
                 % models.role_name(role)
             ),
         )
@@ -341,7 +363,7 @@ class ChatService:
             )
         return ChatAnswer(
             reply.text
-            + "\n\n(Not found in the store's local files, so this was answered by "
+            + "\n\n(Not found in Open Shelf's help files, so this was answered by "
               "the local language model '%s'.)" % reply.model,
             SOURCE_LLM, rag_score=best_rag,
         )
@@ -372,7 +394,7 @@ class ChatService:
     @staticmethod
     def _denial_text(role: str, needed: str, intent: Intent) -> str:
         if role == models.VISITOR:
-            extra = "Registered customers can see more; log in or create an account."
+            extra = "Members can see more; sign in or create a free account."
         else:
             extra = "That information is limited to %s accounts." % models.role_name(needed)
         return (

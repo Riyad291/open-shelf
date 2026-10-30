@@ -300,24 +300,24 @@ class TestAssistant:
         assert "CATALOGUE" in body["text"]
         assert "went wrong" not in body["text"]
 
-    def test_a_shop_question_is_answered_from_the_files_and_cited(
+    def test_a_site_question_is_answered_from_the_files_and_cited(
             self, client, shop):
         body = client.post("/api/chat",
-                           json={"question": "What are your opening hours?"}).json()
+                           json={"question": "Where do the books come from?"}).json()
         assert body["source"] == "via RAG"
         assert body["citations"]
 
     def test_an_off_topic_question_is_not_answered_from_the_files(
             self, client, shop):
         """Without the rare-term rule this scored just high enough on filler
-        words to be answered from the shop's own FAQ."""
+        words to be answered from the site's own help files."""
         body = client.post(
             "/api/chat",
             json={"question": "What is the capital of Mongolia?"}).json()
         assert body["source"] != "via RAG"
 
     def test_every_answer_says_where_it_came_from(self, client, shop):
-        for question in ("What are your opening hours?",
+        for question in ("Where do the books come from?",
                          "What books do you have?",
                          "What is the capital of Mongolia?"):
             body = client.post("/api/chat", json={"question": question}).json()

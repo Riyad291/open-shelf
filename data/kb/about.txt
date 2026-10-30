@@ -1,0 +1,39 @@
+# About Open Shelf
+
+Open Shelf is a free library of technology books. It lists books, courses and
+lecture notes about programming and computer science that their authors have
+chosen to publish for free, and links to wherever each one is published.
+Nothing here costs money, and there is nothing to buy.
+
+Open Shelf does not host or copy any book. Every entry is a link to the
+author's or publisher's own site, so the author keeps control of their work
+and readers always get the current edition.
+
+It is a non-commercial student project by Yeasin Arafat, a computer science
+student at the City College of New York. The source code is public on GitHub
+under the MIT licence.
+
+# Where the books come from
+
+The catalogue is imported from the free-programming-books project maintained
+by the Free Ebook Foundation, a community list of free learning resources
+that thousands of people have contributed to. Its data is published under the
+Creative Commons Attribution 4.0 licence, which is why every page credits it.
+
+Only legitimate sources are used: books their authors or publishers offer for
+free. Pirated copies and shadow libraries are never included.
+
+The current catalogue holds 2,434 English-language resources across 268
+topics, from Python and JavaScript to machine learning, mathematics and
+operating systems. Formats include PDF, HTML, EPUB and interactive notebooks.
+
+# Keeping the catalogue up to date
+
+The importer can be run as often as needed. It adds new entries, updates ones
+whose details changed upstream, and leaves unchanged ones alone. An entry that
+disappears from the upstream list is kept here rather than deleted, because
+readers may have reviewed it.
+
+Links are not yet checked automatically, so a link can occasionally lead to a
+page that has moved. A broken link can be reported by opening an issue on the
+project's GitHub repository.

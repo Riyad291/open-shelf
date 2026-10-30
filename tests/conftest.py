@@ -34,12 +34,12 @@ def workspace():
     """A temporary data directory: covers, knowledge base, face samples."""
     path = tempfile.mkdtemp(prefix="bookstore-test-")
     os.makedirs(os.path.join(path, "data", "kb"), exist_ok=True)
-    with open(os.path.join(path, "data", "kb", "store.txt"), "w",
+    with open(os.path.join(path, "data", "kb", "help.txt"), "w",
               encoding="utf-8") as handle:
-        handle.write("# Opening hours\n"
-                     "Monday to Friday: 9:00 to 19:00.\n"
-                     "Sunday: 12:00 to 17:00.\n\n"
-                     "# Returns\nFourteen days, receipt or not.\n")
+        handle.write("# Where the books come from\n"
+                     "The catalogue is imported from free-programming-books,\n"
+                     "a community list published under CC BY 4.0.\n\n"
+                     "# Broken links\nReport a broken link on GitHub.\n")
     yield path
     shutil.rmtree(path, ignore_errors=True)
 

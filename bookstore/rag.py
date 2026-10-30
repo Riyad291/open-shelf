@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
@@ -273,19 +274,29 @@ class Retriever:
         return hits[0].score if hits else 0.0
 
     def foreign_terms(self, question: str) -> List[str]:
-        """Content words in the question that appear nowhere in the files.
+        """Names in the question that appear nowhere in the files.
 
-        Matching words is evidence *for* a question being local; a word the
-        files have never used is evidence *against*. "What are the opening
-        hours of the Louvre?" matches "opening hours" strongly, and before
-        this check it was answered from the shop's own hours, with a
-        citation. "louvre" appears in no file, and that is the tell.
+        Matching words is evidence *for* a question being local; a name the
+        files have never mentioned is evidence *against*. "Can I sign in to
+        Gmail with my face?" matches the passage on face sign-in strongly,
+        but "Gmail" appears in no file, and that is the tell.
 
-        Words of three letters or fewer are ignored: they are mostly function
-        words the tokenizer kept, and too short to carry the signal.
+        Only names count -- a capitalised word that does not start the
+        question. An earlier version vetoed on *any* unknown word, and
+        measured on questions written the way people ask them it refused
+        half the questions the files do answer: "Is my password stored
+        safely?" was refused because the files never say "safely". An
+        unknown ordinary word is a vocabulary gap; an unknown name is a
+        different subject.
         """
-        return sorted({term for term in set(tokenize(question))
-                       if len(term) > 3 and self._doc_freq.get(term, 0) == 0})
+        words = re.findall(r"[A-Za-z][A-Za-z0-9'+#.-]*", question)
+        names = [w for w in words[1:] if w[0].isupper() and w != "I"]
+        foreign = set()
+        for name in names:
+            for term in tokenize(name):
+                if len(term) > 2 and self._doc_freq.get(term, 0) == 0:
+                    foreign.add(term)
+        return sorted(foreign)
 
     def is_local_question(self, question: str, min_similarity: float,
                           top_k: int = 3) -> Tuple[bool, List[RagHit]]:
@@ -295,11 +306,11 @@ class Retriever:
         threshold, shares at least one rare term with the corpus, **and**
         uses no content word the corpus has never seen (``foreign_terms``).
 
-        Measured with tools/evaluate_ai.py on 18 covered and 15 uncovered
-        questions: see the README for the before-and-after figures. The
-        veto is a heuristic, and the adversarial set is small and was
-        written by the same person who wrote the veto -- a reason to grow
-        the set, not to trust the rate.
+        Measured with tools/evaluate_ai.py on 20 covered and 20 uncovered
+        questions, with and without the veto: it keeps recall at 85% and
+        raises specificity from 55% to 80%. It is a heuristic, and the
+        question sets are small and written by the same person who wrote
+        it -- a reason to grow them, not to trust the rates.
         """
         hits = self.retrieve(question, top_k=top_k)
         if not hits:

@@ -683,8 +683,8 @@ const TAG = {
 };
 
 function paintSuggestions() {
-  const common = ["What are your opening hours?", "Do you ship internationally?",
-                  "What categories do you carry?"];
+  const common = ["Where do the books come from?", "How do I become a trusted contributor?",
+                  "Is my password stored safely?"];
   const extra = {
     RC: ["What is my status?", "What should I read next?"],
     VC: ["What do trusted contributors get?", "What is on the recommended list?"],
