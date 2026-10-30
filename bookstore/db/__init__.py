@@ -7,6 +7,7 @@ from .base import (                                       # noqa: F401
 from .models import (                                     # noqa: F401
     REGISTERED, SUPER_USER, VIP, VISITOR,
     BiometricSample, Book, BookFigure, BrowseHistory, Cart, CartItem, Event,
-    Order, OrderItem, Payment, RefreshToken, Review, TabooWord, Transaction,
-    User, utcnow,
+    ImportRun, Order, OrderItem, Payment, RefreshToken, Resource,
+    ResourceTopic, Review, Source, TabooWord, Topic, Transaction, User,
+    utcnow,
 )

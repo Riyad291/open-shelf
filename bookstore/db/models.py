@@ -559,3 +559,162 @@ Book.purchase_count = column_property(
     .scalar_subquery(),
     deferred=False,
 )
+
+
+# ===========================================================================
+# The resource catalogue
+# ===========================================================================
+# Everything below describes things that live somewhere else. The site is a
+# signpost, not a host: a resource row holds enough to find, judge and open a
+# free book, and a link to where it actually is. Imports run again and again,
+# so a row's identity comes from upstream rather than from our own id.
+
+
+class Source(Base, TimestampMixin):
+    """A catalogue we import from.
+
+    Attribution is a column, not a footnote. The licence a source's data is
+    published under usually requires naming it, and keeping that text here
+    means every page that shows a resource can show where it came from.
+    """
+
+    __tablename__ = "sources"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    slug: Mapped[str] = mapped_column(String(64), unique=True, index=True,
+                                      nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    homepage: Mapped[str] = mapped_column(String(512), default="")
+    licence: Mapped[str] = mapped_column(String(64), default="")
+    attribution: Mapped[str] = mapped_column(Text, default="")
+    terms_url: Mapped[str] = mapped_column(String(512), default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True,
+                                          nullable=False)
+
+    resources: Mapped[List["Resource"]] = relationship(
+        back_populates="source", cascade="all, delete-orphan")
+
+
+class Resource(Base, TimestampMixin):
+    """One free book, course or paper, as a source describes it.
+
+    ``external_id`` is the source's identity for the item, derived from its
+    normalised URL, so the same entry maps to the same row on every import.
+    ``work_key`` groups the same work listed more than once (a PDF and an
+    HTML edition, say) without merging the rows. ``content_hash`` is how an
+    import tells "unchanged" from "updated" without comparing every column.
+
+    Link health (``last_checked_at``, ``last_status``, ``dead``) and
+    ``click_count`` belong to us, not to the source, so an import never
+    overwrites them.
+
+    The UNIQUE constraint on ``(source_id, external_id)`` is the line that
+    makes re-running an import safe: two imports racing on the same entry
+    cannot both insert it.
+    """
+
+    __tablename__ = "resources"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int] = mapped_column(
+        ForeignKey("sources.id", ondelete="CASCADE"), index=True,
+        nullable=False)
+    external_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    title: Mapped[str] = mapped_column(String(512), index=True,
+                                       nullable=False)
+    authors: Mapped[str] = mapped_column(String(512), default="")
+    description: Mapped[str] = mapped_column(Text, default="")
+    url: Mapped[str] = mapped_column(String(1024), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), default="book")
+    media: Mapped[str] = mapped_column(String(64), default="")
+    language: Mapped[str] = mapped_column(String(8), default="en", index=True)
+    licence: Mapped[str] = mapped_column(String(64), default="")
+    in_progress: Mapped[bool] = mapped_column(Boolean, default=False,
+                                              nullable=False)
+    work_key: Mapped[str] = mapped_column(String(64), index=True, default="")
+    content_hash: Mapped[str] = mapped_column(String(64), default="")
+    updated_at: Mapped[Optional[dt.datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True)
+
+    last_checked_at: Mapped[Optional[dt.datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True)
+    last_status: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    dead: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False,
+                                       index=True)
+    click_count: Mapped[int] = mapped_column(Integer, default=0,
+                                             nullable=False)
+
+    source: Mapped["Source"] = relationship(back_populates="resources")
+    topics: Mapped[List["ResourceTopic"]] = relationship(
+        back_populates="resource", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("source_id", "external_id",
+                         name="uq_resource_source_external"),
+        CheckConstraint(
+            "kind in ('book','course','paper','cheatsheet','video',"
+            "'interactive')", name="ck_resource_kind"),
+        Index("ix_resources_source_dead", "source_id", "dead"),
+    )
+
+
+class Topic(Base, TimestampMixin):
+    """A subject (Machine Learning) or a programming language (Rust)."""
+
+    __tablename__ = "topics"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    slug: Mapped[str] = mapped_column(String(96), unique=True, index=True,
+                                      nullable=False)
+    name: Mapped[str] = mapped_column(String(96), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), default="subject")
+
+    __table_args__ = (
+        CheckConstraint("kind in ('subject','language')",
+                        name="ck_topic_kind"),
+    )
+
+
+class ResourceTopic(Base):
+    __tablename__ = "resource_topics"
+
+    resource_id: Mapped[int] = mapped_column(
+        ForeignKey("resources.id", ondelete="CASCADE"), primary_key=True)
+    topic_id: Mapped[int] = mapped_column(
+        ForeignKey("topics.id", ondelete="CASCADE"), primary_key=True)
+
+    resource: Mapped["Resource"] = relationship(back_populates="topics")
+    topic: Mapped["Topic"] = relationship()
+
+
+class ImportRun(Base, TimestampMixin):
+    """The audit trail: one row per import, successful or not.
+
+    A failed import still leaves a row saying when it ran and why it failed,
+    which is the first thing anyone asks when the catalogue looks stale.
+    """
+
+    __tablename__ = "import_runs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    source_id: Mapped[int] = mapped_column(
+        ForeignKey("sources.id", ondelete="CASCADE"), index=True,
+        nullable=False)
+    started_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False)
+    finished_at: Mapped[Optional[dt.datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), default="running",
+                                        nullable=False)
+    inserted: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    updated: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    unchanged: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    skipped: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    detail: Mapped[str] = mapped_column(Text, default="")
+
+    source: Mapped["Source"] = relationship()
+
+    __table_args__ = (
+        CheckConstraint("status in ('running','ok','failed')",
+                        name="ck_import_run_status"),
+    )
