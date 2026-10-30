@@ -113,6 +113,11 @@ jobs:
       - name: Every specification feature
         run: python tools/verify_features.py
 
+      # A quality gate, not a test: retrieval routing, tiering and picture
+      # search measured on labelled questions, failing below a threshold.
+      - name: AI evaluation
+        run: python tools/evaluate_ai.py
+
   migrations:
     name: Migrations
     runs-on: ubuntu-latest

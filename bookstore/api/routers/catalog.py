@@ -172,11 +172,16 @@ async def search_by_image(file: UploadFile = File(...),
 
     out: List[S.ImageHitOut] = []
     book_ids = []
+    # ImageHit carries the matched book as a dict and its score as
+    # `similarity`. This loop used to read match.book_id and match.score,
+    # which ImageHit never had, so every picture search with a match was a
+    # 500. No test uploaded an image that matched anything; the evaluation
+    # in tools/evaluate_ai.py does, and caught it.
     for match in matches:
         try:
-            book_ids.append(int(str(match.book_id).lstrip("b") or 0))
-        except ValueError:
-            continue
+            book_ids.append(int(str(match.book.get("book_id", "")) or 0))
+        except (AttributeError, ValueError):
+            book_ids.append(0)
 
     books = {b.id: b for b in session.execute(
         select(m.Book).where(m.Book.id.in_(book_ids))
@@ -190,7 +195,7 @@ async def search_by_image(file: UploadFile = File(...),
         out.append(S.ImageHitOut(
             book=present.book_out(book, user, runtime.config(),
                                   ratings.get(book.id)),
-            score=round(float(match.score), 3),
+            score=round(float(match.similarity), 3),
             matched_on=getattr(match, "kind", "cover")))
     return out
 

@@ -136,7 +136,12 @@ class ChatService:
             # ---------------- trusted contributors and above ----------------
             Intent(
                 "order_lists", models.VIP,
+                # The lists were renamed for readers ("recommended", "not
+                # recommended"); the patterns have to follow, or the question
+                # people now ask is answered as if it were about something
+                # else -- or refused by the wrong intent.
                 [r"\bto[- ]order\b", r"\bno[- ]order\b", r"\border list\b",
+                 r"\brecommended list\b", r"\bnot[- ]recommended\b",
                  r"\bbest rated\b", r"\btop rated\b", r"\bworst rated\b"],
                 ChatService._answer_order_lists,
                 "the recommended and not-recommended lists",
@@ -153,8 +158,8 @@ class ChatService:
             Intent(
                 "my_account", models.REGISTERED,
                 [r"\bmy account\b", r"\bmy statement\b", r"\bmy contributions?\b",
-                 r"\bmy reviews?\b", r"\bwhat have i (written|reviewed)\b",
-                 r"\bmy history\b"],
+                 r"\bmy reviews?\b", r"\bmy standing\b", r"\bmy history\b",
+                 r"\bwhat have i (written|reviewed|contributed|posted)\b"],
                 ChatService._answer_my_account,
                 "your standing, reviews and warnings",
             ),
