@@ -11,146 +11,101 @@ from decimal import Decimal
 import pytest
 
 from bookstore.db import models as m
-from bookstore.services import accounts, cart, checkout, pricing, reviews
+from bookstore.services import accounts, reviews
 
 
-# ----------------------------------------------------- item 6: money
+# ------------------------------------------- items 6 and 8: standing
 
 
-def test_a_purchase_moves_money_and_stock(session, config, make_book, make_user):
-    book = make_book(price="10.00", stock=3)
-    person = make_user(balance="50.00")
-
-    cart.add(session, person, book.id, 1)
-    result = checkout.place_order(session, person, config)
-
-    assert result.order.total == Decimal("10.00")
-    assert person.balance == Decimal("40.00")
-    assert book.stock == 2
-
-
-def test_a_purchase_you_cannot_afford_is_refused_and_fined(
-        session, config, make_book, make_user):
-    """Item 6: the attempt costs $1 even though it does not succeed."""
-    book = make_book(price="40.00")
-    person = make_user(balance="5.00")
-    cart.add(session, person, book.id, 1)
-
-    with pytest.raises(checkout.CheckoutError) as refused:
-        checkout.place_order(session, person, config)
-
-    assert refused.value.fine_applied == Decimal("1.00")
-    assert person.balance == Decimal("4.00")
-    assert book.stock == 5, "a refused purchase must not consume stock"
-
-
-def test_a_negative_balance_suspends_the_account(
-        session, config, make_book, make_user):
-    book = make_book(price="40.00")
-    person = make_user(balance="0.50")
-    cart.add(session, person, book.id, 1)
-
-    with pytest.raises(checkout.CheckoutError):
-        checkout.place_order(session, person, config)
-
-    assert person.balance < 0
-    assert person.suspended
-
-
-def test_a_suspended_account_cannot_buy(session, config, make_book, make_user):
+def test_a_suspended_member_cannot_review(session, config, make_book,
+                                          make_user):
     book = make_book()
-    person = make_user(balance="100.00")
-    cart.add(session, person, book.id, 1)
+    person = make_user()
     accounts.suspend(session, person, "testing")
 
-    with pytest.raises(checkout.CheckoutError, match="suspended"):
-        checkout.place_order(session, person, config)
+    with pytest.raises(reviews.ReviewError, match="suspended"):
+        reviews.submit(session, person, book, 4, "Fine.", config)
 
 
-def test_only_a_deposit_that_clears_the_debt_allows_reopening(
-        session, make_user):
-    person = make_user(balance="-5.00")
-    accounts.suspend(session, person, "negative balance")
+def test_reopening_keeps_warnings_by_default(session, config, make_user):
+    person = make_user()
+    accounts.apply_warning(session, person, "one", config)
+    accounts.suspend(session, person, "testing")
 
-    with pytest.raises(accounts.AccountError):
-        accounts.reopen(session, person, deposit_amount=Decimal("1.00"))
-    assert person.suspended
-
-    accounts.reopen(session, person, deposit_amount=Decimal("10.00"))
+    accounts.reopen(session, person)
     assert not person.suspended
-    assert person.balance == Decimal("6.00")
+    assert person.warnings == 1, "a reopened account is not a clean slate"
 
 
-# ------------------------------------------- items 8: VIP and discount
+def test_an_administrator_can_clear_warnings_on_reopening(
+        session, config, make_user):
+    person = make_user()
+    accounts.apply_warning(session, person, "one", config)
+    accounts.suspend(session, person, "testing")
+
+    accounts.reopen(session, person, clear_warnings=True)
+    assert person.warnings == 0
 
 
-def test_a_vip_pays_ten_percent_less(session, config, make_book, make_user):
-    book = make_book(price="20.00")
-    vip = make_user(role=m.VIP, balance="100.00")
-    ordinary = make_user(balance="100.00")
-
-    assert pricing.price_for(vip, book, config.vip_discount) == Decimal("18.00")
-    assert pricing.price_for(ordinary, book, config.vip_discount) == Decimal("20.00")
-    assert pricing.price_for(None, book, config.vip_discount) == Decimal("20.00")
-
-
-def test_more_than_three_purchases_promotes_to_vip(
+def test_enough_accepted_reviews_promote_a_member(
         session, config, make_book, make_user):
-    book = make_book(price="1.00", stock=20)
-    person = make_user(balance="100.00")
+    person = make_user()
+    for index in range(config.trusted_review_threshold):
+        reviews.submit(session, person, make_book(title="B%d" % index), 4,
+                       "Good.", config)
 
-    for _ in range(config.vip_purchase_threshold):
-        cart.add(session, person, book.id, 1)
-        checkout.place_order(session, person, config)
-    assert person.role == m.REGISTERED, "exactly 3 is not 'more than 3'"
-
-    cart.add(session, person, book.id, 1)
-    result = checkout.place_order(session, person, config)
-    assert result.promoted
     assert person.role == m.VIP
 
 
-def test_spending_more_than_the_threshold_promotes_to_vip(
+def test_one_review_short_is_not_enough(session, config, make_book,
+                                        make_user):
+    person = make_user()
+    for index in range(config.trusted_review_threshold - 1):
+        reviews.submit(session, person, make_book(title="B%d" % index), 4,
+                       "Good.", config)
+
+    assert person.role == m.REGISTERED
+
+
+def test_blocked_reviews_do_not_count_towards_promotion(
         session, config, make_book, make_user):
-    book = make_book(price="250.00", stock=5)
-    person = make_user(balance="400.00")
+    person = make_user()
+    for index in range(config.trusted_review_threshold):
+        reviews.submit(session, person, make_book(title="B%d" % index), 1,
+                       "stupid garbage trash idiot moron", config)
 
-    cart.add(session, person, book.id, 1)
-    result = checkout.place_order(session, person, config)
-
-    assert result.promoted
-    assert person.role == m.VIP
+    assert person.role != m.VIP
 
 
-def test_the_super_user_is_never_promoted(session, config, make_book, make_user):
-    book = make_book(price="250.00")
-    boss = make_user(role=m.SUPER_USER, balance="900.00")
+def test_an_administrator_is_never_promoted(session, config, make_book,
+                                            make_user):
+    boss = make_user(role=m.SUPER_USER)
+    for index in range(config.trusted_review_threshold):
+        reviews.submit(session, boss, make_book(title="B%d" % index), 4,
+                       "Good.", config)
 
-    cart.add(session, boss, book.id, 1)
-    result = checkout.place_order(session, boss, config)
-
-    assert not result.promoted
     assert boss.role == m.SUPER_USER
 
 
-# --------------------------------------------- item 7: reviews and moderation
+# --------------------------------------------- item 7: review weighting
 
 
-def test_a_purchaser_rating_counts_double(session, config, make_book, make_user):
-    book = make_book(price="5.00", stock=10)
-    buyer = make_user(balance="100.00")
-    bystander = make_user(balance="100.00")
+def test_a_trusted_contributor_rating_counts_double(
+        session, config, make_book, make_user):
+    book = make_book()
+    trusted = make_user(role=m.VIP)
+    ordinary = make_user()
 
-    cart.add(session, buyer, book.id, 1)
-    checkout.place_order(session, buyer, config)
-
-    reviews.submit(session, buyer, book, 5, "Loved it.", config)
-    reviews.submit(session, bystander, book, 1, "Did not.", config)
+    reviews.submit(session, trusted, book, 5, "Loved it.", config)
+    reviews.submit(session, ordinary, book, 1, "Did not.", config)
 
     summary = reviews.rating_summary(session, book.id)
     assert summary["plain_average"] == pytest.approx(3.0)
     # (5*2 + 1*1) / 3 = 3.667
     assert summary["weighted_average"] == pytest.approx(3.667, abs=0.01)
+
+
+# --------------------------------------------- item 7: moderation
 
 
 def test_any_user_may_comment_including_a_visitor(
@@ -225,24 +180,23 @@ def test_more_than_two_warnings_demotes_a_vip(session, config, make_user):
         accounts.apply_warning(session, vip, "test %d" % index, config)
 
     assert vip.role == m.REGISTERED
-    assert not vip.suspended, "a VIP is demoted, not suspended"
-    assert vip.vip_ineligible, "and cannot simply be promoted straight back"
+    assert not vip.suspended, "a trusted contributor is demoted, not suspended"
+    assert vip.promotion_blocked, "and cannot simply be promoted straight back"
 
 
-def test_a_demoted_vip_is_not_promoted_again(
+def test_a_demoted_contributor_is_not_promoted_again(
         session, config, make_book, make_user):
-    """Items 7 and 8 contradict each other here; this is the documented
-    resolution, switchable in settings.json."""
-    book = make_book(price="250.00", stock=5)
-    person = make_user(role=m.VIP, balance="400.00")
+    """Without promotion_blocked, the next accepted review would undo the
+    demotion."""
+    person = make_user(role=m.VIP)
     for index in range(config.warning_limit + 1):
         accounts.apply_warning(session, person, "test %d" % index, config)
     assert person.role == m.REGISTERED
 
-    cart.add(session, person, book.id, 1)
-    result = checkout.place_order(session, person, config)
+    for index in range(config.trusted_review_threshold + 1):
+        reviews.submit(session, person, make_book(title="B%d" % index), 4,
+                       "Good.", config)
 
-    assert not result.promoted
     assert person.role == m.REGISTERED
 
 

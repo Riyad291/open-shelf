@@ -24,16 +24,11 @@
       <button data-view="search">Search</button>
       <button data-view="scan">Shelf&nbsp;Scan</button>
       <button data-view="chat">Ask</button>
-      <button data-view="orders" hidden id="nav-orders">Orders</button>
       <button data-view="account" hidden id="nav-account">Account</button>
       <button data-view="admin" hidden id="nav-admin">Manage</button>
     </nav>
 
     <div class="who">
-      <button id="cart-btn" class="cart-btn" hidden aria-label="Your cart">
-        <span aria-hidden="true">Cart</span>
-        <span class="cart-count" id="cart-count">0</span>
-      </button>
       <span id="who-text">Browsing as a visitor</span>
       <button id="auth-btn" class="btn btn-ghost">Sign in</button>
     </div>
@@ -112,7 +107,7 @@
       Photograph a bookshelf &mdash; yours or ours. The scanner segments the
       photo into individual books, matches each one against our cover index,
       reads your taste from what it finds, and recommends three more. It is how
-      a brand-new customer gets real recommendations before browsing anything.
+      a brand-new member gets real recommendations before browsing anything.
     </p>
 
     <label class="drop drop-wide" id="scan-drop">
@@ -147,19 +142,12 @@
     <div class="suggests" id="suggests"></div>
   </section>
 
-  <!-- ===================================================== orders -->
-  <section class="view" data-view="orders">
-    <h1>Your orders</h1>
-    <p class="lede">Every order, with the price you actually paid at the time.</p>
-    <div id="orders-list"></div>
-  </section>
-
   <!-- ===================================================== account -->
   <section class="view" data-view="account">
     <h1 id="account-name">Your account</h1>
     <div class="stats" id="account-stats"></div>
 
-    <h2>Progress to VIP</h2>
+    <h2>Progress to trusted contributor</h2>
     <p class="lede" id="vip-note"></p>
     <div class="meters" id="vip-meters"></div>
 
@@ -173,11 +161,11 @@
 
   <!-- ===================================================== admin -->
   <section class="view" data-view="admin">
-    <h1>Manage the shop</h1>
+    <h1>Manage the library</h1>
     <div class="segmented segmented-wide" role="tablist" aria-label="Management section">
-      <button role="tab" aria-selected="true" data-panel="finance">Finance</button>
+      <button role="tab" aria-selected="true" data-panel="summary">Overview</button>
       <button role="tab" aria-selected="false" data-panel="reports">Reports (SQL)</button>
-      <button role="tab" aria-selected="false" data-panel="orders">Order lists</button>
+      <button role="tab" aria-selected="false" data-panel="orders">Recommendation lists</button>
       <button role="tab" aria-selected="false" data-panel="accounts">Accounts</button>
       <button role="tab" aria-selected="false" data-panel="taboo">Moderation</button>
       <button role="tab" aria-selected="false" data-panel="newbook">Add a book</button>
@@ -193,16 +181,6 @@
   <article class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
     <button class="sheet-close" data-close aria-label="Close">&times;</button>
     <div id="sheet-body"></div>
-  </article>
-</div>
-
-<!-- ===================================================== cart -->
-<div class="sheet" id="cart-sheet" hidden>
-  <div class="sheet-scrim" data-close-cart></div>
-  <article class="sheet-card sheet-narrow" role="dialog" aria-modal="true" aria-labelledby="cart-title">
-    <button class="sheet-close" data-close-cart aria-label="Close">&times;</button>
-    <h2 id="cart-title">Your cart</h2>
-    <div id="cart-body"></div>
   </article>
 </div>
 
@@ -226,9 +204,9 @@
     <div class="demo">
       <p>Demo accounts</p>
       <ul id="demo-list">
-        <li><button data-u="margaret" data-p="admin123">margaret</button> super-user</li>
-        <li><button data-u="alice" data-p="alice123">alice</button> registered</li>
-        <li><button data-u="carol" data-p="carol123">carol</button> VIP, 10% off</li>
+        <li><button data-u="margaret" data-p="admin123">margaret</button> administrator</li>
+        <li><button data-u="alice" data-p="alice123">alice</button> member, one review from trusted</li>
+        <li><button data-u="carol" data-p="carol123">carol</button> trusted contributor</li>
         <li><button data-u="dave" data-p="dave1234">dave</button> suspended — try it</li>
       </ul>
     </div>
@@ -239,7 +217,6 @@
         <label>Display name <input id="rg-name"></label>
         <label>Username <input id="rg-user" required></label>
         <label>Password <input id="rg-pass" type="password" minlength="4" required></label>
-        <label>Opening deposit <input id="rg-dep" type="number" value="25" min="0" step="1"></label>
         <button class="btn btn-solid">Create account</button>
         <p class="msg" id="reg-msg" role="alert"></p>
       </form>

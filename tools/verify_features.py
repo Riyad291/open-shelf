@@ -2,7 +2,7 @@
 
     python tools/verify_features.py
 
-This is a conformance check, not a unit test. It builds a throwaway shop in a
+This is a conformance check, not a unit test. It builds a throwaway library in a
 temporary SQLite database, drives the real HTTP API the way a grader would,
 and prints the evidence beside each requirement. The exit status is 0 only
 when every item passes.
@@ -11,7 +11,7 @@ It exists because a passing unit suite proves the code does what the tests
 say, not that the tests say what the specification says. Running this walks
 the specification itself.
 
-Nothing here touches the live shop: a temporary database, a temporary data
+Nothing here touches the live site: a temporary database, a temporary data
 directory, and a temporary face gallery, all deleted on the way out.
 """
 
@@ -21,7 +21,6 @@ import os
 import shutil
 import sys
 import tempfile
-from decimal import Decimal
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -85,16 +84,16 @@ def main() -> int:
             "# Opening hours\n"
             "Monday to Friday: 9:00 to 19:00.\n"
             "Saturday: 10:00 to 18:00. Sunday: 12:00 to 17:00.\n\n"
-            "# The team\nMargaret owns the shop and keeps the accounts.\n")
+            "# The team\nMargaret runs the library and keeps the catalogue.\n")
 
     from fastapi.testclient import TestClient
 
     from bookstore.api.app import create_app
     from bookstore.db import models as m
     from bookstore.db.base import Base, engine, session_factory
-    from bookstore.services import accounts, cart, checkout, reviews
+    from bookstore.services import accounts, reviews
 
-    app = create_app(database="sqlite:///" + os.path.join(tmp, "shop.db"),
+    app = create_app(database="sqlite:///" + os.path.join(tmp, "library.db"),
                      data_dir=data_dir, create_tables=True)
     client = TestClient(app)
 
@@ -106,53 +105,40 @@ def main() -> int:
     config.set("taboo_words", ["idiot", "garbage", "trash", "stupid"])
 
     books = {}
-    for title, author, category, year, price, stock in [
-        ("Pride and Prejudice", "Jane Austen", "literature", 1813, "9.99", 10),
-        ("Frankenstein", "Mary Shelley", "literature", 1818, "8.50", 10),
-        ("On the Origin of Species", "Charles Darwin", "science", 1859, "16.50", 10),
-        ("Loved Book", "Ann Author", "poetry", 1901, "5.00", 20),
-        ("Hated Book", "Bo Writer", "history", 1902, "6.00", 20),
+    for title, author, category, year in [
+        ("Pride and Prejudice", "Jane Austen", "literature", 1813),
+        ("Frankenstein", "Mary Shelley", "literature", 1818),
+        ("On the Origin of Species", "Charles Darwin", "science", 1859),
+        ("Loved Book", "Ann Author", "poetry", 1901),
+        ("Hated Book", "Bo Writer", "history", 1902),
+        ("Another Austen", "Jane Austen", "literature", 1815),
+        ("More Literature", "Cy Scribe", "literature", 1820),
     ]:
         book = m.Book(title=title, author=author, category=category, year=year,
-                      price=Decimal(price), stock=stock,
                       description="A work of %s by %s." % (category, author))
         session.add(book)
         session.flush()
         books[title] = book
 
-    su = accounts.create_account(session, "boss", "bosspw",
-                                 role=m.SUPER_USER, display_name="Boss")
+    accounts.create_account(session, "boss", "bosspw", role=m.SUPER_USER,
+                            display_name="Boss")
     alice = accounts.create_account(session, "alice", "alicepw",
-                                    balance=Decimal("200"), display_name="Alice")
+                                    display_name="Alice")
     vip = accounts.create_account(session, "carol", "carolpw", role=m.VIP,
-                                  balance=Decimal("200"), display_name="Carol")
-    # 50 cents, not a pound: the $1 fine has to push the balance *below* zero
-    # for the suspension rule to fire. An earlier version gave him exactly
-    # 1.00, the fine left him at exactly 0.00, and item 6 failed because the
-    # account was never suspended.
-    broke = accounts.create_account(session, "dave", "davepw",
-                                    balance=Decimal("0.50"), display_name="Dave")
-    raters = [accounts.create_account(session, "r%d" % i, "pw12345",
-                                      balance=Decimal("200")) for i in range(4)]
+                                  display_name="Carol")
+    blocked = accounts.create_account(session, "dave", "davepw",
+                                      display_name="Dave")
+    accounts.create_account(session, "mia", "miapw", display_name="Mia")
+    raters = [accounts.create_account(session, "r%d" % i, "pw12345")
+              for i in range(4)]
     session.commit()
 
-    # Purchases, so recommendations and weighting have something to work from.
-    for person in [alice] + raters:
-        cart.add(session, person, books["Pride and Prejudice"].id, 1)
-        checkout.place_order(session, person, config)
-    # Two of the raters also buy "Loved Book", so their ratings of it carry
-    # purchaser weight. Without this every rating weighs the same and the
-    # weighted average equals the plain one -- which would make item 7's
-    # weighting check pass without demonstrating anything.
-    for person in raters[:2]:
-        cart.add(session, person, books["Loved Book"].id, 1)
-        checkout.place_order(session, person, config)
-    session.commit()
-
-    # Four ratings each way, which is "more than 3" -- the order-list threshold.
-    # The two purchasers rate it 5; the two non-purchasers rate it 3. The
-    # weighted average must therefore sit above the plain one.
-    for person, stars in zip(raters, [5, 5, 3, 3]):
+    # Four ratings each way, which is "more than 3" -- the list threshold.
+    # Carol is a trusted contributor, so her 5 weighs double and the weighted
+    # average must sit above the plain one. Without a trusted rater every
+    # rating weighs the same, and item 7's weighting check would pass
+    # without demonstrating anything.
+    for person, stars in zip([vip] + raters[:3], [5, 5, 3, 3]):
         reviews.submit(session, person, books["Loved Book"], stars,
                        "Wonderful." if stars == 5 else "It was fine.", config)
     for person, stars in zip(raters, [1, 2, 1, 1]):
@@ -165,13 +151,19 @@ def main() -> int:
                    "What a stupid, garbage, idiot pile of trash.", config)
     session.commit()
 
-    # Dave tries to buy something he cannot afford: refused, fined, suspended.
-    cart.add(session, broke, books["On the Origin of Species"].id, 1)
-    try:
-        checkout.place_order(session, broke, config)
-    except checkout.CheckoutError:
-        pass
+    # Dave collects one warning more than allowed and is suspended.
+    for index in range(config.warning_limit + 1):
+        accounts.apply_warning(session, blocked, "warning %d" % index, config)
     session.commit()
+
+    # Alice earns trust: enough accepted reviews to be promoted (item 8).
+    # They also give her a reading history, so item 2 has a taste to use.
+    threshold = config.trusted_review_threshold
+    for title in ["Pride and Prejudice", "On the Origin of Species",
+                  "Frankenstein"][:threshold]:
+        reviews.submit(session, alice, books[title], 4, "Enjoyed it.", config)
+    session.commit()
+    alice_role = alice.role
     session.close()
 
     def token(username, password):
@@ -184,20 +176,21 @@ def main() -> int:
 
     t_alice, t_vip, t_boss = (token("alice", "alicepw"), token("carol", "carolpw"),
                               token("boss", "bosspw"))
+    t_member = token("mia", "miapw")
 
     # ------------------------------------------------------------- item 1
-    visitor = client.get("/api/admin/finance").status_code
-    customer = client.get("/api/admin/finance", headers=head(t_alice)).status_code
-    superuser = client.get("/api/admin/finance", headers=head(t_boss)).status_code
+    visitor = client.get("/api/admin/summary").status_code
+    member = client.get("/api/admin/summary", headers=head(t_member)).status_code
+    superuser = client.get("/api/admin/summary", headers=head(t_boss)).status_code
     roles = {client.get("/api/auth/session").json()["role"],
-             client.get("/api/auth/session", headers=head(t_alice)).json()["role"],
+             client.get("/api/auth/session", headers=head(t_member)).json()["role"],
              client.get("/api/auth/session", headers=head(t_vip)).json()["role"],
              client.get("/api/auth/session", headers=head(t_boss)).json()["role"]}
     check(1, "Four user types, different privileges",
-          visitor == 401 and customer == 403 and superuser == 200
+          visitor == 401 and member == 403 and superuser == 200
           and roles == {"VS", "RC", "VC", "SU"},
-          "same route: visitor %d, customer %d, super-user %d; roles %s"
-          % (visitor, customer, superuser, "/".join(sorted(roles))))
+          "same route: visitor %d, member %d, administrator %d; roles %s"
+          % (visitor, member, superuser, "/".join(sorted(roles))))
 
     # ------------------------------------------------------------- item 2
     anon = client.get("/api/recommendations").json()
@@ -205,29 +198,29 @@ def main() -> int:
     check(2, "Top 3 recommendations, personalised",
           len(anon) == 3 and len(mine) == 3
           and anon[0]["reason"] != mine[0]["reason"],
-          "visitor %r vs customer %r"
+          "visitor %r vs member %r"
           % (anon[0]["reason"][:28], mine[0]["reason"][:28]))
 
     # ------------------------------------------------------------- item 3
-    denied = client.post("/api/chat",
-                         json={"question": "What is the total revenue?"}).json()
+    question = {"question": "Show me the catalogue stats."}
+    denied = client.post("/api/chat", json=question).json()
     allowed = client.post("/api/chat", headers=head(t_boss),
-                          json={"question": "What is the total revenue?"}).json()
+                          json=question).json()
 
     # "Not refused" is not the same as "answered". An earlier version of this
     # check asserted only that denied_for_role was false for the super-user,
-    # and it passed while the finance report was actually failing inside the
-    # answer -- the text read "Something went wrong answering that:
-    # 'StoreFacade' object has no attribute 'transactions'" and was still
-    # labelled a success. The check now requires the answer to come from
-    # store data and to contain real figures.
+    # and it passed while the report was actually failing inside the answer
+    # -- the text read "Something went wrong answering that: 'StoreFacade'
+    # object has no attribute 'transactions'" and was still labelled a
+    # success. The check now requires the answer to come from store data and
+    # to contain real figures.
     answered = (not allowed["denied_for_role"]
                 and allowed["source"] == "store data"
-                and "TOTAL REVENUE" in allowed["text"]
+                and "CATALOGUE" in allowed["text"]
                 and "went wrong" not in allowed["text"])
-    check(3, "Chat answers grow with privilege; super-user gets the finances",
+    check(3, "Chat answers grow with privilege; admin gets the insights",
           denied["denied_for_role"] and answered,
-          "visitor refused (%s); super-user got the report from %s"
+          "visitor refused (%s); administrator got the report from %s"
           % (denied["source"], allowed["source"]))
 
     # ------------------------------------------------------------- item 4
@@ -268,9 +261,9 @@ def main() -> int:
 
     # ------------------------------------------------------------- item 5
     created = client.post("/api/admin/books", headers=head(t_boss),
-                          json={"title": "Added By The Super User",
+                          json={"title": "Added By The Administrator",
                                 "author": "Staff", "category": "test",
-                                "year": 2026, "price": "4.00", "stock": 2})
+                                "year": 2026})
     facets = client.get("/api/books/facets").json()
     keyword = client.get("/api/search", params={"q": "Austen"}).json()
     removed = client.delete("/api/admin/books/%d" % created.json()["id"],
@@ -290,15 +283,14 @@ def main() -> int:
     people = client.get("/api/admin/accounts", headers=head(t_boss)).json()
     dave = next(a for a in people if a["username"] == "dave")
     reopened = client.post("/api/admin/accounts/%d/reopen" % dave["id"],
-                           headers=head(t_boss), json={"amount": "20.00"})
-    check(6, "Balance, $1 fine, suspension, super-user reopening",
-          dave["suspended"] and float(dave["total_fines"]) > 0
+                           headers=head(t_boss), json={"clear_warnings": True})
+    check(6, "Suspension after repeated warnings, super-user reopening",
+          dave["suspended"] and dave["warnings"] > config.warning_limit
           and reopened.status_code == 200
-          and not reopened.json()["suspended"],
-          "refused purchase left balance %s and a %s fine, suspended; "
-          "super-user reopened to %s"
-          % (dave["balance"], dave["total_fines"],
-             reopened.json()["balance"]))
+          and not reopened.json()["suspended"]
+          and reopened.json()["warnings"] == 0,
+          "%d warnings suspended the account; the administrator reopened it "
+          "and cleared them" % dave["warnings"])
 
     # ------------------------------------------------------------- item 7
     lists = client.get("/api/admin/order-lists", headers=head(t_boss)).json()
@@ -309,32 +301,31 @@ def main() -> int:
     visitor_review = client.post("/api/books/%d/reviews" % books["Loved Book"].id,
                                  json={"stars": 4, "comment": "Nice."})
     loved = client.get("/api/books/%d" % books["Loved Book"].id).json()
-    # The real test of item 7: a purchaser's rating must count double, so the
+    # The real test of item 7: a trusted rating must count double, so the
     # weighted average has to differ from the plain one in the right
     # direction, not merely exist.
     weighting = (loved["rating"] is not None
                  and loved["plain_rating"] is not None
                  and loved["rating"] > loved["plain_rating"] + 0.1)
-    check(7, "Reviews, purchaser weighting, order lists, taboo words, warnings",
+    check(7, "Reviews, trusted weighting, lists, taboo words, warnings",
           lists["to_order"] and lists["no_order"] and taboo
           and warned["warnings"] > 0 and visitor_review.status_code == 200
           and weighting,
-          "to-order %d, no-order %d; %d taboo words; warning issued; "
-          "purchasers weigh double: weighted %.2f > plain %.2f; visitors may comment"
+          "recommended %d, not %d; %d taboo words; warning issued; "
+          "trusted weigh double: weighted %.2f > plain %.2f; visitors may comment"
           % (len(lists["to_order"]), len(lists["no_order"]), len(taboo),
              loved["rating"], loved["plain_rating"]))
 
     # ------------------------------------------------------------- item 8
-    book_id = books["Frankenstein"].id
-    as_customer = client.get("/api/books/%d" % book_id,
-                             headers=head(t_alice)).json()
-    as_vip = client.get("/api/books/%d" % book_id, headers=head(t_vip)).json()
-    ratio = float(as_vip["your_price"]) / float(as_customer["your_price"])
-    check(8, "VIP promotion and 10% discount",
-          float(as_vip["your_price"]) < float(as_customer["your_price"])
-          and abs(ratio - 0.9) < 0.02,
-          "same book: customer %s, VIP %s (%.0f%% off)"
-          % (as_customer["your_price"], as_vip["your_price"], (1 - ratio) * 100))
+    alice_session = client.get("/api/auth/session",
+                               headers=head(t_alice)).json()
+    carol_session = client.get("/api/auth/session",
+                               headers=head(t_vip)).json()
+    check(8, "Promotion to trusted contributor, whose ratings weigh double",
+          alice_role == m.VIP and alice_session["trusted"]
+          and carol_session["trusted"],
+          "alice promoted after %d accepted reviews (%s)"
+          % (alice_session["review_count"], alice_session["role_name"]))
 
     # ------------------------------------------------------------- item 9
     rag = client.post("/api/chat",
@@ -344,7 +335,7 @@ def main() -> int:
     check(9, "Local knowledge base, RAG routing, source attribution",
           rag["source"] == "via RAG" and rag["citations"]
           and off_topic["source"] != "via RAG",
-          "shop question -> %s citing %s; off-topic -> %s (not answered from files)"
+          "local question -> %s citing %s; off-topic -> %s (not answered from files)"
           % (rag["source"], rag["citations"][0][:30], off_topic["source"]))
 
     # ------------------------------------------------------------ item 10

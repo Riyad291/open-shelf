@@ -28,7 +28,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional
 
-from . import models
+from .db import models
 from .catalog import Catalog
 from .config import Config
 from .llm import OllamaClient
@@ -106,19 +106,21 @@ class ChatService:
 
     def _build_intents(self) -> List[Intent]:
         return [
-            # ---------------- super-user only ----------------
+            # ---------------- administrator only ----------------
             Intent(
-                "finance_report", models.SUPER_USER,
-                [r"\bfinance\b", r"\brevenue\b", r"\bprofit\b", r"\bearn(ing|ings)?\b",
-                 r"\bsales report\b", r"\bincome\b", r"\bturnover\b", r"\bbalance sheet\b",
-                 r"\bhow much (money|did we)\b", r"\bfines? (collected|income)\b"],
-                ChatService._answer_finance,
-                "store revenue, fines, best sellers, liabilities",
+                "insights_report", models.SUPER_USER,
+                [r"\binsights?\b", r"\bstats\b", r"\bstatistics\b", r"\breport\b",
+                 r"\bhow many (resources|books|links)\b",
+                 r"\bcatalogue (health|size)\b", r"\bdead links?\b",
+                 r"\bimport (run|history|status)\b", r"\bmost opened\b",
+                 r"\bhow is the (site|catalogue) doing\b"],
+                ChatService._answer_insights,
+                "catalogue size, link health, imports and community figures",
             ),
             Intent(
                 "user_admin", models.SUPER_USER,
-                [r"\bhow many (users|customers|accounts)\b", r"\buser list\b",
-                 r"\blist (the )?(users|customers|accounts)\b", r"\bsuspended\b",
+                [r"\bhow many (users|members|accounts)\b", r"\buser list\b",
+                 r"\blist (the )?(users|members|accounts)\b", r"\bsuspended\b",
                  r"\bwarnings?\b", r"\bwho is suspended\b", r"\baccounts? (status|overview)\b"],
                 ChatService._answer_user_admin,
                 "accounts, warnings, suspensions",
@@ -130,45 +132,31 @@ class ChatService:
                 ChatService._answer_taboo,
                 "taboo word list and moderation activity",
             ),
-            Intent(
-                "inventory_admin", models.SUPER_USER,
-                [r"\bstock\b", r"\binventory\b", r"\brestock\b", r"\bout of stock\b",
-                 r"\bhow many copies\b"],
-                ChatService._answer_inventory,
-                "stock levels and restocking",
-            ),
 
-            # ---------------- VIP and above ----------------
+            # ---------------- trusted contributors and above ----------------
             Intent(
                 "order_lists", models.VIP,
                 [r"\bto[- ]order\b", r"\bno[- ]order\b", r"\border list\b",
-                 r"\bwhat'?s coming\b", r"\bbest rated\b", r"\btop rated\b",
-                 r"\bworst rated\b"],
+                 r"\bbest rated\b", r"\btop rated\b", r"\bworst rated\b"],
                 ChatService._answer_order_lists,
-                "the to-order and no-order lists",
+                "the recommended and not-recommended lists",
             ),
             Intent(
-                "vip_benefits", models.VIP,
-                [r"\bdiscount\b", r"\bvip\b.*\b(perk|benefit|get)\b",
-                 r"\bmy (perks|benefits)\b"],
-                ChatService._answer_vip_benefits,
-                "VIP discount details",
+                "trusted_benefits", models.VIP,
+                [r"\bvip\b.*\b(perk|benefit|get)\b", r"\bmy (perks|benefits)\b",
+                 r"\btrusted contributor\b"],
+                ChatService._answer_trusted_benefits,
+                "what a trusted contributor gets",
             ),
 
-            # ---------------- registered and above ----------------
+            # ---------------- members and above ----------------
             Intent(
-                "my_balance", models.REGISTERED,
-                [r"\bmy balance\b", r"\bhow much (money )?(do i|have i)\b",
-                 r"\bmy account\b", r"\bmy statement\b", r"\bmy funds\b"],
+                "my_account", models.REGISTERED,
+                [r"\bmy account\b", r"\bmy statement\b", r"\bmy contributions?\b",
+                 r"\bmy reviews?\b", r"\bwhat have i (written|reviewed)\b",
+                 r"\bmy history\b"],
                 ChatService._answer_my_account,
-                "your balance and account statement",
-            ),
-            Intent(
-                "my_purchases", models.REGISTERED,
-                [r"\bmy (purchase|order|book)s?\b", r"\bwhat (have|did) i (buy|bought|order)",
-                 r"\bmy history\b", r"\bmy reading\b"],
-                ChatService._answer_my_purchases,
-                "your purchase history",
+                "your standing, reviews and warnings",
             ),
             Intent(
                 "my_recommendations", models.REGISTERED,
@@ -179,8 +167,8 @@ class ChatService:
             ),
             Intent(
                 "my_status", models.REGISTERED,
-                [r"\bmy (status|tier|role|level)\b", r"\bam i (a )?vip\b",
-                 r"\bhow do i become\b.*\bvip\b", r"\bmy warnings\b"],
+                [r"\bmy (status|tier|role|level)\b", r"\bam i (a )?(vip|trusted)\b",
+                 r"\bhow do i become\b.*\b(vip|trusted)\b", r"\bmy warnings\b"],
                 ChatService._answer_my_status,
                 "your tier and how to reach the next one",
             ),
@@ -188,30 +176,23 @@ class ChatService:
             # ---------------- everyone, including visitors ----------------
             Intent(
                 "catalog_lookup", models.VISITOR,
-                [r"\bdo you (have|sell|stock)\b", r"\bis there a book\b",
+                [r"\bdo you (have|stock)\b", r"\bis there a book\b",
                  r"\blooking for\b", r"\bsearch for\b", r"\bfind (me )?(a |the )?book\b"],
                 ChatService._answer_catalog_lookup,
-                "whether a book is in the catalogue",
+                "whether a book is in the library",
             ),
             Intent(
                 "categories", models.VISITOR,
                 [r"\bcategor(y|ies)\b", r"\bgenres?\b", r"\bwhat kind of books\b",
                  r"\bbrowse\b", r"\bsections?\b"],
                 ChatService._answer_categories,
-                "what categories the store carries",
+                "what categories the library has",
             ),
             Intent(
                 "popular", models.VISITOR,
-                [r"\bpopular\b", r"\bbest ?sell(er|ing)\b", r"\bmost (bought|purchased|viewed)\b",
-                 r"\btrending\b"],
+                [r"\bpopular\b", r"\bmost (viewed|read)\b", r"\btrending\b"],
                 ChatService._answer_popular,
                 "the most popular books",
-            ),
-            Intent(
-                "price_lookup", models.VISITOR,
-                [r"\bhow much (is|does)\b", r"\bprice of\b", r"\bcost of\b"],
-                ChatService._answer_price,
-                "book prices",
             ),
         ]
 
@@ -399,24 +380,22 @@ class ChatService:
     # Intent handlers
     # ======================================================================
 
-    def _answer_finance(self, user, question) -> str:
+    def _answer_insights(self, user, question) -> str:
         return self.finance.report_text()
 
     def _answer_user_admin(self, user, question) -> str:
         users = self.db.list_users()
         if not users:
             return "There are no accounts yet."
-        lines = ["ACCOUNTS (%d total)" % len(users), "-" * 62]
-        lines.append("%-6s %-14s %-20s %8s %4s %s"
-                     % ("id", "username", "role", "balance", "wrn", "state"))
+        lines = ["ACCOUNTS (%d total)" % len(users), "-" * 54]
+        lines.append("%-6s %-14s %-20s %4s %s"
+                     % ("id", "username", "role", "wrn", "state"))
         for entry in users:
-            models.normalise_user(entry)
             state = "suspended" if entry.get("suspended") else "active"
             lines.append(
-                "%-6s %-14s %-20s %8.2f %4d %s"
+                "%-6s %-14s %-20s %4d %s"
                 % (entry.get("user_id"), str(entry.get("username"))[:14],
                    models.role_name(entry.get("role", "")),
-                   float(entry.get("balance", 0.0)),
                    int(entry.get("warnings", 0)), state)
             )
         suspended = [u for u in users if u.get("suspended")]
@@ -456,106 +435,55 @@ class ChatService:
                 )
         return "\n".join(lines)
 
-    def _answer_inventory(self, user, question) -> str:
-        books = self.catalog.all_books()
-        if not books:
-            return "The catalogue is empty."
-        low = sorted(books, key=lambda b: int(b.get("stock", 0)))[:10]
-        lines = ["INVENTORY -- lowest stock first", "-" * 56]
-        for book in low:
-            lines.append("  %-34s stock %3d  $%6.2f"
-                         % (str(book.get("title"))[:34], int(book.get("stock", 0)),
-                            float(book.get("price", 0.0))))
-        out_of_stock = [b for b in books if int(b.get("stock", 0)) == 0]
-        lines.append("")
-        lines.append("Titles out of stock: %d of %d" % (len(out_of_stock), len(books)))
-        lists = self.rules.order_lists()
-        if lists["to_order"]:
-            lines.append("On the to-order list (reorder these): %s"
-                         % ", ".join(r["book"]["title"] for r in lists["to_order"][:5]))
-        if lists["no_order"]:
-            lines.append("On the no-order list (do not reorder): %s"
-                         % ", ".join(r["book"]["title"] for r in lists["no_order"][:5]))
-        return "\n".join(lines)
-
     def _answer_order_lists(self, user, question) -> str:
         lists = self.rules.order_lists()
         lines = []
         if lists["to_order"]:
-            lines.append("TO-ORDER (more than %d ratings, average above %.1f):"
+            lines.append("RECOMMENDED (more than %d ratings, average above %.1f):"
                          % (self.cfg.min_ratings_for_list, self.cfg.to_order_min_avg))
             for row in lists["to_order"]:
                 lines.append("  %-34s %.2f stars from %d ratings"
                              % (str(row["book"]["title"])[:34], row["average"], row["count"]))
         else:
-            lines.append("Nothing is on the to-order list yet.")
+            lines.append("Nothing is on the recommended list yet.")
         lines.append("")
         if lists["no_order"]:
-            lines.append("NO-ORDER (more than %d ratings, average below %.1f):"
+            lines.append("NOT RECOMMENDED (more than %d ratings, average below %.1f):"
                          % (self.cfg.min_ratings_for_list, self.cfg.no_order_max_avg))
             for row in lists["no_order"]:
                 lines.append("  %-34s %.2f stars from %d ratings"
                              % (str(row["book"]["title"])[:34], row["average"], row["count"]))
         else:
-            lines.append("Nothing is on the no-order list.")
+            lines.append("Nothing is on the not-recommended list.")
         return "\n".join(lines)
 
-    def _answer_vip_benefits(self, user, question) -> str:
-        pct = self.cfg.vip_discount * 100
+    def _answer_trusted_benefits(self, user, question) -> str:
         lines = [
-            "VIP benefits",
-            "  * %.0f%% off every purchase, applied automatically at checkout." % pct,
-            "  * Access to the to-order and no-order lists in this chat.",
-            "  * Richer answers from the assistant than registered customers get.",
+            "Trusted contributors",
+            "  * Your ratings count double towards a book's average.",
+            "  * Access to the recommended and not-recommended lists here.",
+            "  * Richer answers from the assistant than members get.",
+            "",
+            "A member becomes a trusted contributor after %d reviews that "
+            "pass moderation." % self.cfg.trusted_review_threshold,
+            "More than %d warnings demotes a trusted contributor back to member."
+            % self.cfg.warning_limit,
         ]
-        if user and user.get("role") == models.VIP:
-            spent = float(user.get("total_spent", 0.0))
-            lines.append("")
-            lines.append("You are a VIP. Lifetime spend $%.2f across %d purchases."
-                         % (spent, int(user.get("purchase_count", 0))))
-            lines.append("Note: a VIP who collects more than %d warnings is "
-                         "demoted back to registered customer."
-                         % self.cfg.warning_limit)
         return "\n".join(lines)
 
     def _answer_my_account(self, user, question) -> str:
         if not user:
             return ""
-        text = self.finance.user_statement(user)
-        if float(user.get("balance", 0.0)) < 0:
-            text += ("\n\nYour balance is negative, so the account is suspended. "
-                     "Ask the super-user to reopen it with a deposit.")
-        elif float(user.get("balance", 0.0)) < 5:
-            text += "\n\nYour balance is low. A purchase you cannot cover costs a $%.2f fine." % self.cfg.fine_amount
-        return text
-
-    def _answer_my_purchases(self, user, question) -> str:
-        if not user:
-            return ""
-        history = user.get("purchase_history") or []
-        if not history:
-            return ("You have not bought anything yet. Browse the shelves and I can "
-                    "recommend something once I know your taste.")
-        lines = ["Your purchases (%d):" % len(history)]
-        for entry in history[-12:][::-1]:
-            book = self.db.get_book(entry.get("book_id", ""))
-            lines.append("  %-36s $%6.2f  %s"
-                         % (str(book.get("title") if book else entry.get("book_id"))[:36],
-                            float(entry.get("price_paid", 0.0)),
-                            str(entry.get("at", ""))[:10]))
-        lines.append("")
-        lines.append("Total spent: $%.2f" % float(user.get("total_spent", 0.0)))
-        return "\n".join(lines)
+        return self.finance.user_statement(user)
 
     def _answer_recommendations(self, user, question) -> str:
         recs = self.recommender.top_for(user, self.cfg.recommendation_count)
         if not recs:
-            return "I don't have enough in the catalogue to recommend anything yet."
+            return "I don't have enough in the library to recommend anything yet."
         lines = ["Recommended for you:"]
         for i, rec in enumerate(recs, 1):
-            price = self.rules.price_for(user, rec.book)
-            lines.append("  %d. %s by %s -- $%.2f"
-                         % (i, rec.book.get("title"), rec.book.get("author"), price))
+            lines.append("  %d. %s by %s"
+                         % (i, rec.book.get("title"), rec.book.get("author")))
             lines.append("     because %s" % rec.reason)
         return "\n".join(lines)
 
@@ -563,26 +491,21 @@ class ChatService:
         if not user:
             return ""
         role = user.get("role")
-        lines = ["You are a %s." % models.role_name(role)]
+        lines = ["You are a %s." % models.role_name(role).lower()]
         if role == models.REGISTERED:
-            purchases = int(user.get("purchase_count", 0))
-            spent = float(user.get("total_spent", 0.0))
-            need_p = max(0, self.cfg.vip_purchase_threshold + 1 - purchases)
-            need_s = max(0.0, self.cfg.vip_spend_threshold + 0.01 - spent)
+            written = int(user.get("review_count", 0))
+            needed = self.cfg.trusted_review_threshold
             lines.append(
-                "VIP needs more than %d purchases or more than $%.2f spent. "
-                "You have %d purchases and $%.2f."
-                % (self.cfg.vip_purchase_threshold, self.cfg.vip_spend_threshold,
-                   purchases, spent)
-            )
-            lines.append("That is %d more purchase(s), or $%.2f more spend, whichever comes first."
-                         % (need_p, need_s))
-            if user.get("vip_ineligible"):
-                lines.append("Note: VIP promotion is currently on hold for this "
-                             "account following a moderation demotion. The "
-                             "super-user can lift it.")
+                "Trusted contributor needs %d reviews that pass moderation. "
+                "You have written %d." % (needed, written))
+            if written < needed:
+                lines.append("That is %d more." % (needed - written))
+            if user.get("promotion_blocked"):
+                lines.append("Note: promotion is on hold for this account "
+                             "following a moderation demotion. An "
+                             "administrator can lift it.")
         elif role == models.VIP:
-            lines.append("You get %.0f%% off every purchase." % (self.cfg.vip_discount * 100))
+            lines.append("Your ratings count double as a trusted contributor.")
         lines.append("Warnings: %d of %d allowed before action is taken."
                      % (int(user.get("warnings", 0)), self.cfg.warning_limit))
         return "\n".join(lines)
@@ -590,7 +513,7 @@ class ChatService:
     def _answer_catalog_lookup(self, user, question) -> str:
         # Strip the conversational wrapper so the search sees the title.
         query = re.sub(
-            r"\b(do you have|do you sell|do you stock|is there a book|looking for|"
+            r"\b(do you have|do you stock|is there a book|looking for|"
             r"search for|find me|find|a |the |any |books? (by|about|on)|please|\?)\b",
             " ", question.lower(),
         ).strip()
@@ -598,31 +521,28 @@ class ChatService:
             return ""
         hits = self.catalog.search(query, limit=5)
         if not hits:
-            return ("I could not find anything matching \"%s\" in our catalogue. "
+            return ("I could not find anything matching \"%s\" in the library. "
                     "Try an author name or a broader keyword." % query)
         lines = ["Found %d match%s for \"%s\":"
                  % (len(hits), "" if len(hits) == 1 else "es", query)]
         for hit in hits:
             book = hit.book
-            price = self.rules.price_for(user, book)
-            stock = int(book.get("stock", 0))
             summary = self.rules.rating_summary(book["book_id"])
             rating = (" -- %.1f stars from %d rating%s"
                       % (summary.weighted_average, summary.count,
                          "" if summary.count == 1 else "s")) if summary.count else ""
             lines.append(
-                "  %s by %s (%s, %s) -- $%.2f, %s%s"
+                "  %s by %s (%s, %s)%s"
                 % (book.get("title"), book.get("author"), book.get("category"),
-                   book.get("year") or "n.d.", price,
-                   "in stock" if stock else "out of stock", rating)
+                   book.get("year") or "n.d.", rating)
             )
         return "\n".join(lines)
 
     def _answer_categories(self, user, question) -> str:
         categories = self.catalog.categories()
         if not categories:
-            return "The catalogue is empty at the moment."
-        lines = ["We shelve books in %d categories:" % len(categories)]
+            return "The library is empty at the moment."
+        lines = ["Books are shelved in %d categories:" % len(categories)]
         for name, count in categories:
             lines.append("  %-16s %d title%s" % (name, count, "" if count == 1 else "s"))
         lines.append("")
@@ -632,40 +552,17 @@ class ChatService:
     def _answer_popular(self, user, question) -> str:
         books = sorted(
             self.catalog.all_books(),
-            key=lambda b: (-int(b.get("purchase_count", 0)), -int(b.get("browse_count", 0))),
+            key=lambda b: -int(b.get("browse_count", 0)),
         )[:5]
         if not books:
-            return "The catalogue is empty at the moment."
+            return "The library is empty at the moment."
         lines = ["Most popular right now:"]
         for i, book in enumerate(books, 1):
             lines.append(
-                "  %d. %s by %s -- %d purchase(s), %d view(s)"
+                "  %d. %s by %s -- %d view(s)"
                 % (i, book.get("title"), book.get("author"),
-                   int(book.get("purchase_count", 0)), int(book.get("browse_count", 0)))
+                   int(book.get("browse_count", 0)))
             )
-        return "\n".join(lines)
-
-    def _answer_price(self, user, question) -> str:
-        query = re.sub(
-            r"\b(how much is|how much does|the price of|the cost of|price of|cost of|"
-            r"cost|a |the |\?)\b", " ", question.lower(),
-        ).strip()
-        if len(query) < 3:
-            return ""
-        hits = self.catalog.search(query, limit=3)
-        if not hits:
-            return ""
-        lines = []
-        for hit in hits:
-            book = hit.book
-            base = float(book.get("price", 0.0))
-            price = self.rules.price_for(user, book)
-            if price < base:
-                lines.append("%s by %s: $%.2f (list $%.2f, your VIP discount applied)"
-                             % (book.get("title"), book.get("author"), price, base))
-            else:
-                lines.append("%s by %s: $%.2f"
-                             % (book.get("title"), book.get("author"), price))
         return "\n".join(lines)
 
     # ======================================================================

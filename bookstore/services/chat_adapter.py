@@ -1,19 +1,20 @@
 """Facades so the assistant can read the SQL catalogue unchanged.
 
-``chat.py`` is 683 lines of intent routing, privilege tiering and RAG/LLM
-dispatch, and it implements specification items 3, 9, 12 and 13. It was
-written against dictionaries from the file-backed store, and it uses exactly
-eleven methods across four collaborators:
+``chat.py`` is the intent routing, privilege tiering and RAG/LLM dispatch
+behind specification items 3, 9, 12 and 13. It was written against
+dictionaries from the file-backed store, and it uses a small set of methods
+across five collaborators:
 
     db          get_book  get_user  list_users  reviews
-    rules       order_lists  price_for  rating_summary
+    rules       order_lists  rating_summary
     catalog     all_books  categories  search
     recommender top_for
+    insights    report_text  user_statement
 
 Rewriting it for a storage change it is indifferent to would risk behaviour
-that is already verified against the specification. These facades present the
-same eleven names over the relational schema instead, so the assistant is
-carried across the migration untouched.
+that is already verified against the specification. These facades present
+the same names over the relational schema instead (``bookstore/ports.py``
+writes the contract down).
 """
 
 from __future__ import annotations
@@ -25,50 +26,24 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..db import models as m
 from . import catalog as catalog_service
-from . import pricing
 from . import recommend as recommend_service
 from . import reviews as review_service
 from .image_catalogue import book_as_dict
 
 
 def user_as_dict(user: Optional[m.User], session: Session) -> Optional[dict]:
-    """The account shape the assistant expects.
-
-    ``purchase_history`` is materialised from the orders table because the
-    assistant answers "what have I bought?" from it. It is a list of the same
-    entries the old store kept.
-    """
+    """The account shape the assistant expects."""
     if user is None:
         return None
-
-    history = session.execute(
-        select(m.OrderItem.book_id, m.OrderItem.unit_price,
-               m.OrderItem.title_at_purchase, m.Order.placed_at)
-        .select_from(m.OrderItem)
-        .join(m.Order, (m.Order.id == m.OrderItem.order_id)
-              & (m.Order.status == "paid"))
-        .where(m.Order.user_id == user.id)
-        .order_by(m.Order.id.desc())
-    ).all()
-
     return {
         "user_id": str(user.id),
         "username": user.username,
         "display_name": user.display_name,
         "role": user.role,
-        "balance": float(user.balance),
         "warnings": user.warnings,
         "suspended": user.suspended,
-        "vip_ineligible": user.vip_ineligible,
-        "purchase_count": int(user.purchase_count or 0),
-        "total_spent": float(user.total_spent or 0),
-        "total_fines": float(user.total_fines),
-        "purchase_history": [
-            {"book_id": str(row.book_id), "price_paid": float(row.unit_price),
-             "title": row.title_at_purchase,
-             "at": row.placed_at.isoformat() if row.placed_at else ""}
-            for row in history
-        ],
+        "promotion_blocked": user.promotion_blocked,
+        "review_count": review_service.accepted_review_count(session, user),
     }
 
 
@@ -115,7 +90,7 @@ class StoreFacade:
             "raw_comment": r.raw_comment,
             "taboo_hits": r.taboo_hits,
             "blocked": r.blocked,
-            "verified_purchase": r.verified_purchase,
+            "trusted_reviewer": r.trusted_reviewer,
             "weight": float(r.weight),
         } for r in rows]
 
@@ -144,26 +119,6 @@ class RulesFacade:
         data = review_service.rating_summary(self._session, key)
         return _Summary(data["count"], data["weighted_average"],
                         data["plain_average"])
-
-    def price_for(self, user, book) -> float:
-        """The assistant passes dicts, so the real book row is fetched to
-        price it -- the discount must match what checkout charges."""
-        try:
-            key = int(str(book.get("book_id", "")).lstrip("b") or 0)
-        except (TypeError, ValueError):
-            return float(book.get("price", 0))
-
-        row = self._session.get(m.Book, key)
-        if row is None:
-            return float(book.get("price", 0))
-
-        account = None
-        if user and user.get("user_id"):
-            try:
-                account = self._session.get(m.User, int(user["user_id"]))
-            except (TypeError, ValueError):
-                account = None
-        return float(pricing.price_for(account, row, self._config.vip_discount))
 
     def order_lists(self) -> dict:
         lists = review_service.order_lists(self._session, self._config)
@@ -248,22 +203,11 @@ class RecommenderFacade:
         return [_Pick(p) for p in picks]
 
 
-class FinanceFacade:
-    """The two finance texts the assistant prints, computed in SQL.
+class InsightsFacade:
+    """The two texts the assistant prints for the administrator and a member.
 
-    ``ChatService`` builds its own ``FinanceService(storage)`` in __init__,
-    and that class iterates ``storage.transactions``, ``.users`` and
-    ``.books`` -- attributes the file-backed store had and this facade does
-    not. The result was not a crash the tests would catch but a polite
-    failure *inside* an answer: a super-user asking for the finance report got
-    "Something went wrong answering that: 'StoreFacade' object has no
-    attribute 'transactions'", with the answer still labelled as successful.
-    Specification item 3's headline capability was broken and looked fine.
-
-    Replacing the attribute rather than widening the facade keeps the money
-    figures coming from one place -- services/finance.py, the same SQL the
-    super-user's Finance screen uses -- so the chat box and the screen cannot
-    disagree.
+    Computed by ``services/insights.py``, the same SQL as the administrator's
+    screen, so the chat box and the screen cannot disagree.
     """
 
     def __init__(self, session: Session, config):
@@ -271,46 +215,45 @@ class FinanceFacade:
         self._config = config
 
     def report_text(self) -> str:
-        from . import finance as finance_service
-        report = finance_service.report(self._session)
+        from . import insights
+        data = insights.summary(self._session)
 
         lines = [
-            "FINANCE REPORT",
+            "CATALOGUE",
+            "  Live resources       %8d" % data["resources"],
+            "  Dead links           %8d" % data["dead_links"],
+            "  Times opened         %8d" % data["total_opens"],
+            "  Sources              %8d" % data["sources"],
+            "  Topics               %8d" % data["topics"],
             "",
-            "Revenue from sales   $%10.2f" % report["revenue_sales"],
-            "Revenue from fines   $%10.2f" % report["revenue_fines"],
-            "Refunds              $%10.2f" % report["refunds"],
-            "TOTAL REVENUE        $%10.2f" % report["total_revenue"],
-            "",
-            "Paid orders          %11d" % report["order_count"],
-            "Average order        $%10.2f" % report["average_order"],
-            "Fines issued         %11d" % report["fine_count"],
-            "",
-            "Customer balances    $%10.2f" % report["customer_liability"],
-            "Stock at list price  $%10.2f" % report["inventory_value"],
-            "Suspended accounts   %11d" % report["suspended_count"],
-            "Accounts in debt     %11d" % report["negative_balance_count"],
+            "COMMUNITY",
+            "  Accounts             %8d" % data["accounts"],
+            "  Trusted contributors %8d" % data["trusted_contributors"],
+            "  Suspended            %8d" % data["suspended_accounts"],
+            "  Reviews              %8d" % data["reviews"],
+            "  Blocked reviews      %8d" % data["blocked_reviews"],
         ]
 
-        if report["top_books"]:
-            lines += ["", "Best sellers:"]
-            for book in report["top_books"]:
-                lines.append("  %-34s %3d sold  $%8.2f"
-                             % (book["title"][:34], book["units"],
-                                book["revenue"]))
+        last = data["last_import"]
+        lines += ["", "LAST IMPORT"]
+        if last is None:
+            lines.append("  No import has run yet.")
+        else:
+            lines.append("  %s, %s: %d inserted, %d updated, %d unchanged"
+                         % (last["status"], last["started_at"][:16],
+                            last["inserted"], last["updated"],
+                            last["unchanged"]))
 
-        if report["revenue_by_category"]:
-            lines += ["", "Revenue by category:"]
-            for row in report["revenue_by_category"]:
-                if row["revenue"]:
-                    lines.append("  %-20s $%8.2f  (%.1f%%)"
-                                 % (row["category"], row["revenue"],
-                                    row["pct_of_revenue"]))
+        top = insights.most_opened(self._session, limit=5)
+        if top:
+            lines += ["", "MOST OPENED BY TOPIC"]
+            for row in top:
+                lines.append("  %-22s %-34s %4d"
+                             % (row["topic"][:22], row["title"][:34],
+                                row["opens"]))
         return "\n".join(lines)
 
     def user_statement(self, user: dict) -> str:
-        from sqlalchemy import select as _select
-
         try:
             account = self._session.get(m.User, int(user.get("user_id", 0)))
         except (TypeError, ValueError):
@@ -318,32 +261,22 @@ class FinanceFacade:
         if account is None:
             return "No such account."
 
+        accepted = review_service.accepted_review_count(self._session,
+                                                        account)
         lines = [
-            "Account statement for %s" % (account.display_name
-                                          or account.username),
-            "Balance            $%8.2f" % account.balance,
-            "Lifetime spend     $%8.2f" % (account.total_spent or 0),
-            "Fines paid         $%8.2f" % account.total_fines,
-            "Purchases          %8d" % int(account.purchase_count or 0),
-            "Warnings           %8d" % account.warnings,
+            "ACCOUNT: %s" % (account.display_name or account.username),
+            "  Standing          %s" % m.role_name(account.role),
+            "  Reviews accepted  %d" % accepted,
+            "  Warnings          %d of %d allowed"
+            % (account.warnings, self._config.warning_limit),
+            "  Status            %s"
+            % ("suspended" if account.suspended else "active"),
         ]
-
-        movements = self._session.execute(
-            _select(m.Transaction)
-            .where(m.Transaction.user_id == account.id)
-            .order_by(m.Transaction.id.desc())
-            .limit(8)
-        ).scalars().all()
-
-        if movements:
-            lines += ["", "Recent activity:"]
-            for txn in movements:
-                book = (self._session.get(m.Book, txn.book_id)
-                        if txn.book_id else None)
-                label = book.title if book else (txn.note or "")
-                lines.append("  %-10s %-26s $%7.2f  %s"
-                             % (txn.kind, str(label)[:26], abs(txn.amount),
-                                txn.created_at.date().isoformat()))
+        if account.role == m.REGISTERED and not account.promotion_blocked:
+            left = self._config.trusted_review_threshold - accepted
+            if left > 0:
+                lines += ["", "%d more accepted review(s) and you become a "
+                          "trusted contributor." % left]
         return "\n".join(lines)
 
 
@@ -353,6 +286,6 @@ def build_chat_service(session: Session, config, files, retriever, llm):
     service = ChatService(
         StoreFacade(session), config, RulesFacade(session, config),
         CatalogFacade(session, files), RecommenderFacade(session, config),
-        FinanceFacade(session, config), retriever, llm,
+        InsightsFacade(session, config), retriever, llm,
     )
     return service

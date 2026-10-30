@@ -58,7 +58,6 @@ def list_books(session: Session, *, category: Optional[str] = None,
     order = {
         "title": m.Book.title,
         "author": m.Book.author,
-        "price": m.Book.price,
         "year": m.Book.year,
         "newest": m.Book.id.desc(),
         "popular": m.Book.browse_count.desc(),

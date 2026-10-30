@@ -58,7 +58,7 @@ def list_books(
     category: Optional[str] = None,
     author: Optional[str] = None,
     decade: Optional[str] = Query(None, description="e.g. 1850s"),
-    sort: str = Query("title", pattern="^(title|author|price|year|newest|popular)$"),
+    sort: str = Query("title", pattern="^(title|author|year|newest|popular)$"),
     limit: int = Query(60, ge=1, le=200),
     offset: int = Query(0, ge=0),
     user=Depends(current_user),

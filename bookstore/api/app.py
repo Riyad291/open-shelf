@@ -24,7 +24,7 @@ from ..db.base import session_factory
 from . import runtime
 from . import schemas as S
 from .routers import (
-    admin, auth, biometrics, cart, catalog, chat, resources, shelfscan,
+    admin, auth, biometrics, catalog, chat, resources, shelfscan,
 )
 
 
@@ -74,7 +74,7 @@ def create_app(database: Optional[str] = None,
         allow_headers=["*"],
     )
 
-    for router in (auth.router, catalog.router, cart.router, chat.router,
+    for router in (auth.router, catalog.router, chat.router,
                    biometrics.router, shelfscan.router, admin.router,
                    resources.router):
         app.include_router(router)
@@ -86,7 +86,7 @@ def create_app(database: Optional[str] = None,
         """A constraint refused the write.
 
         These are the schema's guarantees firing -- duplicate usernames,
-        negative stock, a duplicate cart line. They are conflicts with the
+        a resource imported twice. They are conflicts with the
         current state, not server faults, and the database message is not
         shown because it names tables and columns.
         """
@@ -124,12 +124,12 @@ def create_app(database: Optional[str] = None,
         try:
             books = session.execute(select(func.count(m.Book.id))).scalar_one()
             users = session.execute(select(func.count(m.User.id))).scalar_one()
-            orders = session.execute(
-                select(func.count(m.Order.id))
-                .where(m.Order.status == "paid")).scalar_one()
+            resources = session.execute(
+                select(func.count(m.Resource.id))
+                .where(m.Resource.dead.is_(False))).scalar_one()
             database_state = "ok"
         except OperationalError:
-            books = users = orders = 0
+            books = users = resources = 0
             database_state = "unreachable"
         finally:
             session.close()
@@ -137,7 +137,8 @@ def create_app(database: Optional[str] = None,
         return S.HealthOut(
             status="ok" if database_state == "ok" else "degraded",
             database=database_state,
-            books=int(books), accounts=int(users), orders=int(orders),
+            books=int(books), accounts=int(users),
+            resources=int(resources),
             knowledge_base_chunks=len(runtime.retriever().chunks),
             face_model_trained=service.trained,
             face_detector=service.backend_description,

@@ -1,13 +1,12 @@
 """Specification item 2: three recommendations, personalised by privilege.
 
-A visitor and the super-user see what the shop sells most. A registered or
-VIP customer sees books chosen from what they have browsed and bought, with
-a sentence saying why -- a recommendation nobody can explain is indistinguishable
-from an advert.
+A visitor and the administrator see what readers here rate most. A member or
+trusted contributor sees books chosen from what they have browsed and
+reviewed, with a sentence saying why -- a recommendation nobody can explain
+is indistinguishable from an advert.
 
-A book on the no-order list is never recommended. Recommending a title the
-shop has decided to stop stocking would be a straight contradiction between
-two of the specification's own rules.
+A book on the not-recommended list is never recommended. That would be a
+straight contradiction between two of the specification's own rules.
 """
 
 from __future__ import annotations
@@ -32,17 +31,17 @@ class Recommendation:
 
 
 def _excluded_ids(session: Session, config) -> set:
-    """Books on the no-order list, which must not be recommended."""
+    """Books on the not-recommended list, which must not be recommended."""
     lists = review_service.order_lists(session, config)
     return {entry["book_id"] for entry in lists["no_order"]}
 
 
 def _taste(session: Session, user: m.User) -> tuple:
-    """What this customer leans towards, from browsing and buying.
+    """What this reader leans towards, from browsing and reviewing.
 
     Two grouped queries rather than loading the history and counting in
-    Python. Purchases weigh more than views: buying a book says more than
-    glancing at it.
+    Python. Reviewing something is a stronger signal than glancing at it, so
+    a review counts three times a view.
     """
     browsed = session.execute(
         select(m.Book.category, m.Book.author, func.count(m.BrowseHistory.id))
@@ -52,13 +51,11 @@ def _taste(session: Session, user: m.User) -> tuple:
         .group_by(m.Book.category, m.Book.author)
     ).all()
 
-    bought = session.execute(
-        select(m.Book.category, m.Book.author, func.sum(m.OrderItem.quantity))
-        .select_from(m.OrderItem)
-        .join(m.Order, (m.Order.id == m.OrderItem.order_id)
-              & (m.Order.status == "paid"))
-        .join(m.Book, m.Book.id == m.OrderItem.book_id)
-        .where(m.Order.user_id == user.id)
+    reviewed = session.execute(
+        select(m.Book.category, m.Book.author, func.count(m.Review.id))
+        .select_from(m.Review)
+        .join(m.Book, m.Book.id == m.Review.book_id)
+        .where(m.Review.user_id == user.id, m.Review.blocked.is_(False))
         .group_by(m.Book.category, m.Book.author)
     ).all()
 
@@ -67,19 +64,17 @@ def _taste(session: Session, user: m.User) -> tuple:
     for category, author, count in browsed:
         categories[category] += int(count)
         authors[author] += int(count)
-    for category, author, count in bought:
+    for category, author, count in reviewed:
         categories[category] += int(count or 0) * 3
         authors[author] += int(count or 0) * 3
 
     return categories, authors
 
 
-def _already_owned(session: Session, user: m.User) -> set:
+def _already_seen(session: Session, user: m.User) -> set:
+    """Books this reader has already reviewed: no point suggesting them."""
     return set(session.execute(
-        select(m.OrderItem.book_id)
-        .join(m.Order, (m.Order.id == m.OrderItem.order_id)
-              & (m.Order.status == "paid"))
-        .where(m.Order.user_id == user.id)
+        select(m.Review.book_id).where(m.Review.user_id == user.id)
     ).scalars())
 
 
@@ -95,14 +90,11 @@ def top_for(session: Session, user: Optional[m.User], config,
         return _store_wide(
             session, excluded, count,
             note="You have not browsed anything yet, so these are the "
-                 "shop's most popular.")
+                 "most reviewed here.")
 
-    owned = _already_owned(session, user)
-    books = session.execute(
-        select(m.Book).where(m.Book.stock > 0)
-    ).scalars().all()
+    owned = _already_seen(session, user)
+    books = session.execute(select(m.Book)).scalars().all()
 
-    ratings = {}
     scored: List[Recommendation] = []
     for book in books:
         if book.id in excluded or book.id in owned:
@@ -114,7 +106,7 @@ def top_for(session: Session, user: Optional[m.User], config,
             continue
 
         score = category_affinity * 1.0 + author_affinity * 2.0
-        score += min(float(book.purchase_count or 0), 10.0) * 0.2
+        score += min(float(book.browse_count or 0), 10.0) * 0.1
 
         reasons = []
         if author_affinity:
@@ -132,7 +124,7 @@ def top_for(session: Session, user: Optional[m.User], config,
     if len(scored) >= count:
         return scored[:count]
 
-    # Not enough personal signal yet: top it up from the shop's best sellers
+    # Not enough personal signal yet: top it up from the most reviewed
     # rather than returning one lonely suggestion.
     seen = {r.book.id for r in scored}
     for extra in _store_wide(session, excluded | seen | owned, count):
@@ -144,34 +136,32 @@ def top_for(session: Session, user: Optional[m.User], config,
 
 def _store_wide(session: Session, excluded: set, count: int,
                 note: str = "") -> List[Recommendation]:
-    """What the shop sells and shows most, for anyone with no history."""
-    sold = func.coalesce(
-        select(func.sum(m.OrderItem.quantity))
-        .select_from(m.OrderItem)
-        .join(m.Order, (m.Order.id == m.OrderItem.order_id)
-              & (m.Order.status == "paid"))
-        .where(m.OrderItem.book_id == m.Book.id)
+    """What readers here review and open most, for anyone with no history."""
+    rated = func.coalesce(
+        select(func.count(m.Review.id))
+        .where(m.Review.book_id == m.Book.id, m.Review.blocked.is_(False))
         .correlate(m.Book)
         .scalar_subquery(), 0)
 
-    statement = select(m.Book, sold.label("sold")).where(m.Book.stock > 0)
+    statement = select(m.Book, rated.label("rated"))
     if excluded:
         statement = statement.where(m.Book.id.not_in(excluded))
 
     rows = session.execute(
-        statement.order_by(sold.desc(), m.Book.browse_count.desc(),
+        statement.order_by(rated.desc(), m.Book.browse_count.desc(),
                            m.Book.title).limit(count)
     ).all()
 
     out = []
-    for book, sold_count in rows:
+    for book, rating_count in rows:
         if note:
             reason = note
-        elif sold_count:
-            reason = "One of the shop's best sellers (%d sold)." % int(sold_count)
+        elif rating_count:
+            reason = ("One of the most reviewed here (%d rating%s)."
+                      % (rating_count, "" if rating_count == 1 else "s"))
         else:
-            reason = "Popular with people browsing the shop."
-        out.append(Recommendation(book, reason, float(sold_count or 0)))
+            reason = "Popular with people browsing the library."
+        out.append(Recommendation(book, reason, float(rating_count or 0)))
     return out
 
 
@@ -190,7 +180,7 @@ def similar_to(session: Session, book_ids: List[int], config,
     excluded = _excluded_ids(session, config) | set(book_ids)
 
     candidates = session.execute(
-        select(m.Book).where(m.Book.stock > 0, m.Book.id.not_in(book_ids))
+        select(m.Book).where(m.Book.id.not_in(book_ids))
     ).scalars().all()
 
     scored = []

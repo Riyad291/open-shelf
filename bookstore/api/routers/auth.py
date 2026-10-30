@@ -41,16 +41,9 @@ def register(body: S.RegisterIn, request: Request,
     try:
         user = accounts.create_account(
             session, body.username, body.password,
-            balance=body.opening_deposit,
             display_name=body.display_name)
     except accounts.AccountError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
-
-    if body.opening_deposit:
-        session.add(m.Transaction(kind="deposit", user_id=user.id,
-                                  amount=body.opening_deposit,
-                                  note="opening balance"))
-        session.flush()
 
     return _tokens(session, user, request)
 

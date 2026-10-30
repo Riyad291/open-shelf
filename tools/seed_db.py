@@ -1,16 +1,15 @@
-"""Populate the database with a demo shop.
+"""Populate the database with a demo library.
 
     python tools/seed_db.py                  # tables, books, covers, accounts
     python tools/seed_db.py --reset          # drop everything first
     python tools/seed_db.py --gutenberg      # also fetch the real book texts
 
-Every state the specification describes is visible straight away: a suspended
-account, a VIP, a title on each order list, a blocked comment, and a customer
-one purchase away from promotion. A grader should not have to type anything
-to see requirement 6 or 7 working.
+Every state the specification describes is visible straight away: a
+suspended account, a trusted contributor, a title on each list, a masked and
+a blocked comment, and a member one review away from promotion.
 
-Cover and figure generation is reused from tools/seed.py unchanged -- they
-are files, and files did not move when the records became relational.
+This is the demo shelf of sixteen public-domain titles. The free technology
+catalogue is imported separately, by tools/import_resources.py.
 """
 
 from __future__ import annotations
@@ -18,7 +17,6 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-from decimal import Decimal
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -27,31 +25,32 @@ from sqlalchemy import select                                    # noqa: E402
 from bookstore.config import Config, ensure_dirs                 # noqa: E402
 from bookstore.db import models as m                             # noqa: E402
 from bookstore.db.base import Base, configure, engine, session_factory  # noqa: E402
-from bookstore.services import accounts, cart, checkout, reviews  # noqa: E402
+from bookstore.services import accounts, reviews                  # noqa: E402
 from bookstore.storage import Storage                            # noqa: E402
 
 from demo_books import BOOKS, download_gutenberg, make_cover, make_figure  # noqa: E402
 from demo_books import placeholder_text                                # noqa: E402
 
 
-#: username, display name, role, opening balance, what it demonstrates
+#: username, display name, password, role
 ACCOUNTS = [
-    ("margaret", "Margaret Osei",  "admin123", m.SUPER_USER, "0.00"),
-    ("alice",    "Alice Nakamura", "alice123", m.REGISTERED, "60.00"),
-    ("bob",      "Bob Oyelaran",   "bob12345", m.REGISTERED, "40.00"),
-    ("carol",    "Carol Whitfield", "carol123", m.VIP,       "240.00"),
-    ("dave",     "Dave Mensah",    "dave1234", m.REGISTERED, "0.50"),
-    ("erin",     "Erin Kovac",     "erin1234", m.REGISTERED, "25.00"),
+    ("margaret", "Margaret Osei",   "admin123", m.SUPER_USER),
+    ("alice",    "Alice Nakamura",  "alice123", m.REGISTERED),
+    ("bob",      "Bob Oyelaran",    "bob12345", m.REGISTERED),
+    ("carol",    "Carol Whitfield", "carol123", m.VIP),
+    ("dave",     "Dave Mensah",     "dave1234", m.REGISTERED),
+    ("erin",     "Erin Kovac",      "erin1234", m.REGISTERED),
 ]
 
 
 def seed_books(session, files: Storage, fetch_texts: bool) -> list:
     created = []
-    for title, author, category, year, price, stock, gid, description in BOOKS:
+    # BOOKS still carries the old price and stock columns; they are unused.
+    for title, author, category, year, _price, _stock, gid, description \
+            in BOOKS:
         book = m.Book(
             title=title, author=author, category=category, year=year,
-            price=Decimal(str(price)), stock=stock, description=description,
-            gutenberg_id=gid,
+            description=description, gutenberg_id=gid,
         )
         session.add(book)
         session.flush()
@@ -90,50 +89,25 @@ def seed_books(session, files: Storage, fetch_texts: bool) -> list:
 
 def seed_accounts(session) -> dict:
     out = {}
-    for username, display, password, role, balance in ACCOUNTS:
-        user = accounts.create_account(
-            session, username, password, role=role,
-            balance=Decimal(balance), display_name=display)
-        if Decimal(balance) > 0:
-            session.add(m.Transaction(kind="deposit", user_id=user.id,
-                                      amount=Decimal(balance),
-                                      note="opening balance"))
-        out[username] = user
+    for username, display, password, role in ACCOUNTS:
+        out[username] = accounts.create_account(
+            session, username, password, role=role, display_name=display)
     session.flush()
     return out
 
 
 def seed_activity(session, config, books: list, users: dict) -> None:
-    """Buy, rate and misbehave, so every rule has something to show."""
+    """Rate and misbehave, so every rule has something to show."""
     by_title = {book.title: book for book in books}
 
-    def buy(user, titles):
-        for title in titles:
-            book = by_title.get(title)
-            if book is not None:
-                cart.add(session, user, book.id, 1)
-        checkout.place_order(session, user, config)
+    # Dave has collected more warnings than allowed and is suspended:
+    # specification item 6, visible on arrival.
+    for index in range(config.warning_limit + 1):
+        accounts.apply_warning(session, users["dave"],
+                               "demo warning %d" % (index + 1), config)
 
-    # Alice: three purchases, one short of VIP promotion.
-    buy(users["alice"], ["Pride and Prejudice", "Frankenstein"])
-    buy(users["alice"], ["The Adventures of Sherlock Holmes"])
-
-    # Carol is already a VIP and buys at a discount.
-    buy(users["carol"], ["On the Origin of Species", "Meditations"])
-
-    # Erin buys one book so her rating of it counts double.
-    buy(users["erin"], ["Leaves of Grass"])
-
-    # Dave tries to buy something he cannot afford: refused, fined, and the
-    # negative balance suspends him. Specification item 6, visible on arrival.
-    dave = users["dave"]
-    cart.add(session, dave, by_title["Dracula"].id, 1)
-    try:
-        checkout.place_order(session, dave, config)
-    except checkout.CheckoutError:
-        pass
-
-    # Ratings engineered so one title lands on each order list.
+    # Ratings engineered so one title lands on each list. Carol is a trusted
+    # contributor, so hers count double.
     loved = by_title["Alice's Adventures in Wonderland"]
     hated = by_title["Moby Dick"]
     for name, stars in [("alice", 5), ("bob", 5), ("carol", 4), ("erin", 5)]:
@@ -151,7 +125,7 @@ def seed_activity(session, config, books: list, users: dict) -> None:
     # max_taboo_before_block (3), and "idiotic" is not the listed word
     # "idiot" -- matching is whole-word. An earlier version of this line read
     # "idiotic" and scored 3, so the comment was merely masked and the demo
-    # shop opened with no blocked comment and no warning for a grader to see.
+    # library opened with no blocked comment and no warning to see.
     reviews.submit(session, users["bob"], by_title["Dracula"], 2,
                    "What a stupid, garbage, idiot pile of trash.", config)
 
@@ -183,7 +157,7 @@ def main() -> int:
     try:
         existing = session.execute(select(m.Book).limit(1)).scalar_one_or_none()
         if existing is not None and not args.reset:
-            print("The shop already has books. Use --reset to start over.")
+            print("The library already has books. Use --reset to start over.")
             return 0
 
         print("Seeding books and covers...")
@@ -193,7 +167,7 @@ def main() -> int:
         print("Creating accounts...")
         users = seed_accounts(session)
 
-        print("Buying, rating and misbehaving...")
+        print("Rating and misbehaving...")
         seed_activity(session, config, books, users)
 
         for word in config.taboo_words:
@@ -207,9 +181,9 @@ def main() -> int:
         session.close()
 
     print("\nDone. Sign in with:")
-    for username, display, password, role, balance in ACCOUNTS:
-        print("  %-9s / %-9s (%s)" % (username, password, role))
-    print("\nStart the shop with:  python -m bookstore.api")
+    for username, display, password, role in ACCOUNTS:
+        print("  %-9s / %-9s (%s)" % (username, password, m.role_name(role)))
+    print("\nStart it with: python -m bookstore.api")
     return 0
 
 

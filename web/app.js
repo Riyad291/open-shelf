@@ -10,6 +10,11 @@
 "use strict";
 
 const API = "/api";
+
+// These mirror config/settings.json (warning_limit, trusted_review_threshold).
+// They only label the account page; the server enforces the real rules.
+const WARNING_LIMIT = 2;
+const TRUSTED_AFTER = 3;
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
@@ -17,7 +22,6 @@ const state = {
   access: null,
   refresh: localStorage.getItem("inkwell.refresh") || null,
   session: { signed_in: false, role: "VS", role_name: "Visitor" },
-  cart: null,
   page: { offset: 0, limit: 24, total: 0 },
   filter: { axis: "categories", value: null },
   camera: { stream: null, mode: null, shots: [] },
@@ -84,7 +88,6 @@ function storeTokens(data) {
 function clearTokens() {
   state.access = null;
   state.refresh = null;
-  state.cart = null;
   localStorage.removeItem("inkwell.refresh");
   state.session = { signed_in: false, role: "VS", role_name: "Visitor" };
 }
@@ -114,7 +117,6 @@ async function loadSession() {
     state.session = { signed_in: false, role: "VS", role_name: "Visitor" };
   }
   paintSession();
-  if (state.session.signed_in) loadCart().catch(() => {});
 }
 
 function paintSession() {
@@ -122,21 +124,18 @@ function paintSession() {
   const signedIn = !!s.signed_in;
 
   $("#who-text").textContent = signedIn
-    ? `${s.display_name || s.username} · ${s.role_name}` +
-      (s.balance != null ? ` · ${money(s.balance)}` : "")
+    ? `${s.display_name || s.username} · ${s.role_name}`
     : "Browsing as a visitor";
 
   $("#auth-btn").textContent = signedIn ? "Sign out" : "Sign in";
-  $("#cart-btn").hidden = !signedIn;
-  $("#nav-orders").hidden = !signedIn || s.role === "SU";
   $("#nav-account").hidden = !signedIn || s.role === "SU";
   $("#nav-admin").hidden = s.role !== "SU";
 
   const scopes = {
-    VS: "You can ask about our books, categories, prices and shop policies. Your own account and the shop's internals need an account.",
-    RC: "You can also ask about your balance, your purchases and what to read next.",
-    VC: "You can also ask about the to-order and no-order lists, and your discount.",
-    SU: "You can also ask about finances, every account, moderation and stock.",
+    VS: "You can ask about the books, the categories and how this site works. Your own account and the site's internals need an account.",
+    RC: "You can also ask about your reviews, your standing and what to read next.",
+    VC: "You can also ask about the recommended and not-recommended lists.",
+    SU: "You can also ask for the catalogue statistics, every account and moderation.",
   };
   $("#chat-scope").textContent = scopes[s.role] || scopes.VS;
   paintSuggestions();
@@ -163,7 +162,6 @@ function spine(book, rank) {
       <span class="spine-text">
         <b>${esc(book.title)}</b><i>${esc(book.author)}</i>
       </span>
-      <span class="spine-foot">${money(book.your_price)}</span>
       ${badge ? `<span class="spine-dot ${badge}" aria-hidden="true"></span>` : ""}
     </button>`;
 }
@@ -176,7 +174,6 @@ function card(book, note) {
         <b>${esc(book.title)}</b>
         <i>${esc(book.author)}</i>
         ${book.rating != null ? `<span class="stars">${stars(book.rating)}</span>` : ""}
-        <span class="card-p">${money(book.your_price)}</span>
         ${note ? `<span class="card-n">${esc(note)}</span>` : ""}
       </span>
     </button>`;
@@ -241,7 +238,6 @@ async function openBook(id) {
 }
 
 function bookSheet(book) {
-  const discounted = Number(book.your_price) < Number(book.price);
   return `
     <div class="detail">
       ${book.cover_url ? `<img class="detail-cover" src="${esc(book.cover_url)}" alt="Cover of ${esc(book.title)}">` : ""}
@@ -251,22 +247,17 @@ function bookSheet(book) {
         <dl class="detail-facts">
           <div><dt>Category</dt><dd>${esc(book.category)}</dd></div>
           <div><dt>Published</dt><dd>${esc(book.year ?? "—")}</dd></div>
-          <div><dt>In stock</dt><dd>${book.stock}</dd></div>
-          <div><dt>Sold</dt><dd>${book.purchase_count}</dd></div>
+          <div><dt>Views</dt><dd>${book.browse_count}</dd></div>
         </dl>
         <p class="rating-line">${book.rating_count
           ? `<span class="stars">${stars(book.rating)}</span> ${book.rating} from ${book.rating_count} rating${book.rating_count === 1 ? "" : "s"}`
           : "No ratings yet."}</p>
         ${book.list_status !== "normal"
           ? `<p class="note ${book.list_status === "no-order" ? "bad" : "good"}">
-               This title is on the <b>${esc(book.list_status)}</b> list.</p>` : ""}
+               This title is on the <b>${book.list_status === "no-order"
+                 ? "not-recommended" : "recommended"}</b> list.</p>` : ""}
         <p class="serif">${esc(book.description)}</p>
 
-        <p class="price">
-          ${discounted ? `<span class="price-was">${money(book.price)}</span> ` : ""}
-          ${money(book.your_price)}
-          ${discounted ? `<span class="price-off">VIP price</span>` : ""}
-        </p>
         <div id="buy-area"></div>
       </div>
     </div>
@@ -277,9 +268,9 @@ function bookSheet(book) {
         `<img src="${esc(f.url)}" alt="Figure from ${esc(book.title)}" loading="lazy">`).join("")}</div>` : ""}
 
     <h3>Ratings and comments</h3>
-    <p class="muted">Comments from customers who bought the book count double in
-      the average. Taboo words are masked, and a comment with more than three
-      is blocked.</p>
+    <p class="muted">Ratings from trusted contributors count double in the
+      average. Taboo words are masked, and a comment with more than three is
+      blocked.</p>
     <div id="review-list">${book.reviews.map(reviewHtml).join("")
       || `<p class="muted">Nobody has reviewed this yet.</p>`}</div>
     <div id="review-form"></div>`;
@@ -291,7 +282,7 @@ function reviewHtml(r) {
       <div class="review-head">
         <span class="stars">${stars(r.stars)}</span>
         <b>${esc(r.author)}</b>
-        ${r.verified_purchase ? `<span class="badge">bought it — counts double</span>` : ""}
+        ${r.trusted_reviewer ? `<span class="badge">trusted contributor — counts double</span>` : ""}
       </div>
       <p>${esc(r.comment)}</p>
     </div>`;
@@ -300,37 +291,22 @@ function reviewHtml(r) {
 function wireBookSheet(book) {
   const buy = $("#buy-area");
   if (!state.session.signed_in) {
-    buy.innerHTML = `<p class="muted">Sign in to buy. You can still rate and
-      comment as a visitor.</p>`;
+    buy.innerHTML = `<p class="muted">You can rate and comment as a visitor.
+      Sign in and your ratings are kept with your account.</p>`;
   } else if (state.session.role === "SU") {
-    buy.innerHTML = `<p class="muted">You are signed in as staff.</p>`;
-  } else if (book.stock < 1) {
-    buy.innerHTML = `<p class="note bad">Out of stock.</p>`;
+    buy.innerHTML = `<p class="muted">You are signed in as an administrator.</p>`;
   } else {
-    buy.innerHTML = `
-      <div class="buy-row">
-        <label class="qty">Qty
-          <input type="number" id="buy-qty" value="1" min="1" max="${book.stock}">
-        </label>
-        <button class="btn btn-solid" id="add-cart">Add to cart</button>
-      </div>`;
-    $("#add-cart").addEventListener("click", async () => {
-      const quantity = Math.max(1, Number($("#buy-qty").value) || 1);
-      try {
-        state.cart = await api("/cart/items", {
-          method: "POST", body: { book_id: book.id, quantity },
-        });
-        paintCartCount();
-        toast(`Added ${book.title} to your cart.`, "good");
-      } catch (e) { toast(e.message, "bad"); }
-    });
+    buy.innerHTML = `<p class="muted">Everything here is free. Rate it below
+      and your reviews build your standing.</p>`;
   }
 
   const form = $("#review-form");
   form.innerHTML = `
     <h4>Leave a rating</h4>
     <p class="muted">${state.session.signed_in
-      ? "Your rating is kept with your account, and counts double on books you bought."
+      ? (state.session.trusted
+          ? "Your rating counts double as a trusted contributor."
+          : "Your rating is kept with your account. Reviews that pass moderation earn trusted-contributor status.")
       : "Posting as a visitor. Sign in and your rating is kept with your account."}</p>
     <div class="star-pick" id="star-pick">${[1, 2, 3, 4, 5].map((n) =>
       `<button data-stars="${n}" aria-label="${n} stars">☆</button>`).join("")}</div>
@@ -354,146 +330,9 @@ function wireBookSheet(book) {
       });
       toast(result.message, result.ok ? "good" : "bad");
       if (result.ok) openBook(book.id);
-      if (result.suspended || result.demoted) loadSession();
+      loadSession();
     } catch (e) { toast(e.message, "bad"); }
   });
-}
-
-/* ------------------------------------------------------------------ cart */
-
-function paintCartCount() {
-  const count = state.cart ? state.cart.item_count : 0;
-  $("#cart-count").textContent = count;
-  $("#cart-btn").classList.toggle("has", count > 0);
-}
-
-async function loadCart() {
-  state.cart = await api("/cart");
-  paintCartCount();
-  return state.cart;
-}
-
-async function openCart() {
-  try { await loadCart(); } catch (e) { toast(e.message, "bad"); return; }
-  paintCart();
-  $("#cart-sheet").hidden = false;
-}
-
-function paintCart() {
-  const cart = state.cart;
-  const body = $("#cart-body");
-
-  if (!cart || !cart.lines.length) {
-    body.innerHTML = `<p class="empty">Your cart is empty. The shelf is that way.</p>`;
-    return;
-  }
-
-  body.innerHTML = `
-    <div class="cart-lines">
-      ${cart.lines.map((l) => `
-        <div class="cart-line">
-          ${l.cover_url ? `<img src="${esc(l.cover_url)}" alt="">` : `<span class="bought-blank"></span>`}
-          <span class="cart-t">
-            <b>${esc(l.title)}</b><i>${esc(l.author)}</i>
-            ${!l.enough_stock ? `<em class="warn-text">Only ${l.in_stock} left</em>` : ""}
-          </span>
-          <input class="cart-qty" type="number" min="0" max="99"
-                 value="${l.quantity}" data-qty="${l.book_id}"
-                 aria-label="Quantity of ${esc(l.title)}">
-          <span class="cart-p">${money(l.line_total)}</span>
-          <button class="cart-x" data-remove="${l.book_id}" aria-label="Remove">&times;</button>
-        </div>`).join("")}
-    </div>
-
-    <dl class="totals">
-      <div><dt>Subtotal</dt><dd>${money(Number(cart.subtotal) + Number(cart.discount))}</dd></div>
-      ${Number(cart.discount) > 0
-        ? `<div class="good"><dt>VIP discount</dt><dd>−${money(cart.discount)}</dd></div>` : ""}
-      <div class="total"><dt>Total</dt><dd>${money(cart.total)}</dd></div>
-      <div><dt>Your balance</dt><dd>${money(cart.balance)}</dd></div>
-    </dl>
-
-    ${cart.affordable ? "" :
-      `<p class="note bad">Your balance will not cover this. Checking out anyway
-        is refused <b>and</b> costs a $1 fine.</p>`}
-
-    <button class="btn btn-solid btn-wide" id="checkout-btn">
-      Check out · ${money(cart.total)}
-    </button>`;
-
-  $$("[data-qty]", body).forEach((input) => input.addEventListener("change", async () => {
-    try {
-      state.cart = await api("/cart/items/" + input.dataset.qty, {
-        method: "PATCH", body: { quantity: Number(input.value) },
-      });
-      paintCart(); paintCartCount();
-    } catch (e) { toast(e.message, "bad"); paintCart(); }
-  }));
-
-  $$("[data-remove]", body).forEach((b) => b.addEventListener("click", async () => {
-    try {
-      state.cart = await api("/cart/items/" + b.dataset.remove, { method: "DELETE" });
-      paintCart(); paintCartCount();
-    } catch (e) { toast(e.message, "bad"); }
-  }));
-
-  $("#checkout-btn").addEventListener("click", checkout);
-}
-
-async function checkout() {
-  const button = $("#checkout-btn");
-  button.disabled = true;
-  button.textContent = "Placing your order…";
-  try {
-    const result = await api("/checkout", { method: "POST" });
-    toast(result.message, result.ok ? "good" : "bad");
-    await Promise.all([loadSession(), loadCart(), loadShelf()]);
-    paintCart();
-    if (result.ok) {
-      $("#cart-sheet").hidden = true;
-      show("orders");
-    }
-  } catch (e) {
-    toast(e.message, "bad");
-  } finally {
-    button.disabled = false;
-  }
-}
-
-/* ---------------------------------------------------------------- orders */
-
-async function paintOrders() {
-  const list = $("#orders-list");
-  list.innerHTML = `<p class="empty">Loading…</p>`;
-  const orders = await api("/orders");
-
-  if (!orders.length) {
-    list.innerHTML = `<p class="empty">No orders yet.</p>`;
-    return;
-  }
-
-  list.innerHTML = orders.map((o) => `
-    <article class="order">
-      <header>
-        <b>Order #${o.id}</b>
-        <span class="order-when">${esc((o.placed_at || "").slice(0, 10))}</span>
-        <span class="order-total">${money(o.total)}</span>
-      </header>
-      <div class="order-lines">
-        ${o.items.map((i) => `
-          <button class="order-line" data-book="${i.book_id}">
-            ${i.cover_url ? `<img src="${esc(i.cover_url)}" alt="">` : ""}
-            <span><b>${esc(i.title)}</b><i>${i.quantity} × ${money(i.unit_price)}</i></span>
-            <span class="num">${money(i.line_total)}</span>
-          </button>`).join("")}
-      </div>
-      ${Number(o.discount) > 0
-        ? `<p class="order-note good">VIP discount of ${money(o.discount)} applied
-             (${(Number(o.discount_rate) * 100).toFixed(0)}%).</p>` : ""}
-      ${o.payments.map((p) => `
-        <p class="order-note">Paid ${money(p.amount)} from your balance ·
-          ${esc(p.status)} · ref ${esc(p.reference)}</p>`).join("")}
-    </article>`).join("");
 }
 
 /* --------------------------------------------------------------- account */
@@ -504,33 +343,29 @@ async function paintAccount() {
   $("#account-name").textContent = s.display_name || s.username;
 
   const tiles = [
-    ["Balance", money(s.balance), Number(s.balance) < 0 ? "bad" : (Number(s.balance) < 1 ? "warn" : "good")],
-    ["Lifetime spend", money(s.total_spent), ""],
-    ["Purchases", s.purchase_count, ""],
-    ["Warnings", `${s.warnings} of 2`, s.warnings ? "warn" : ""],
+    ["Standing", s.suspended ? "Suspended" : "Good", s.suspended ? "bad" : "good"],
+    ["Warnings", `${s.warnings} of ${WARNING_LIMIT}`, s.warnings ? "warn" : ""],
     ["Tier", s.role_name, ""],
   ];
   $("#account-stats").innerHTML = tiles.map(([k, v, cls]) =>
     `<div class="stat"><div class="stat-k">${k}</div>
      <div class="stat-v ${cls}">${esc(v)}</div></div>`).join("");
 
-  if (s.role === "VC") {
+  if (s.trusted) {
     $("#vip-note").textContent =
-      "You are a VIP: 10% off every purchase. More than two moderation warnings would return you to a registered customer.";
+      `You are a trusted contributor: your ratings count double. More than ${WARNING_LIMIT} moderation warnings would return you to member.`;
     $("#vip-meters").innerHTML = "";
   } else {
     $("#vip-note").textContent =
-      "More than 3 purchases or more than $200.00 spent, whichever comes first.";
-    $("#vip-meters").innerHTML = [
-      ["Purchases", s.purchase_count, 4],
-      ["Spent", s.total_spent, 200.01],
-    ].map(([k, v, target]) => `
+      `${TRUSTED_AFTER} reviews that pass moderation make you a trusted contributor.`;
+    const v = s.review_count || 0;
+    $("#vip-meters").innerHTML = `
       <div>
-        <div class="meter-k"><span>${k}</span>
-          <span>${k === "Spent" ? money(v) + " of " + money(target) : v + " of " + target}</span></div>
+        <div class="meter-k"><span>Reviews accepted</span>
+          <span>${v} of ${TRUSTED_AFTER}</span></div>
         <div class="meter-t"><div class="meter-f"
-             style="width:${Math.min(100, (Number(v) / target) * 100)}%"></div></div>
-      </div>`).join("");
+             style="width:${Math.min(100, (v / TRUSTED_AFTER) * 100)}%"></div></div>
+      </div>`;
   }
 
   paintFacePanel().catch(() => {});
@@ -661,7 +496,7 @@ async function captureShot() {
       closeCamera();
       $("#auth").hidden = true;
       paintSession();
-      await Promise.all([loadPicks(), loadShelf(), loadCart()]);
+      await Promise.all([loadPicks(), loadShelf()]);
       toast(`Signed in as ${data.session.display_name || data.session.username}.`, "good");
       return;
     }
@@ -750,9 +585,9 @@ function paintSuggestions() {
   const common = ["What are your opening hours?", "Do you ship internationally?",
                   "What categories do you carry?"];
   const extra = {
-    RC: ["What is my balance?", "What should I read next?"],
-    VC: ["What is my discount?", "What is on the to-order list?"],
-    SU: ["What is the finance report?", "Which accounts are suspended?"],
+    RC: ["What is my status?", "What should I read next?"],
+    VC: ["What do trusted contributors get?", "What is on the recommended list?"],
+    SU: ["Show me the catalogue stats.", "Which accounts are suspended?"],
   }[state.session.role] || [];
 
   $("#suggests").innerHTML = common.concat(extra)
@@ -800,7 +635,9 @@ function sqlHeading(column) {
     .replace(/^./, (m) => m.toUpperCase());
 }
 
-const MONEY_COLS = /revenue|sales|fines|refunds|spent|spend|price|balance|value|total|average(?!$)/i;
+// Nothing here is money any more. Kept as a pattern that matches nothing so
+// that sqlCell's formatting rules stay in one place if a column ever is.
+const MONEY_COLS = /^$/;
 const PCT_COLS = /^pct_|_pct$|percent/i;
 
 function sqlCell(column, value) {
@@ -831,37 +668,38 @@ function sqlTable(rows, empty) {
 }
 
 const adminPanels = {
-  async finance() {
-    const f = await api("/admin/finance");
+  async summary() {
+    const s = await api("/admin/summary");
     const tiles = [
-      ["Total revenue", money(f.total_revenue), "good"],
-      ["Sales", money(f.revenue_sales), ""],
-      ["Fines", money(f.revenue_fines), Number(f.revenue_fines) ? "warn" : ""],
-      ["Paid orders", f.order_count, ""],
-      ["Average order", money(f.average_order), ""],
-      ["Customer balances", money(f.customer_liability), ""],
-      ["Stock value", money(f.inventory_value), ""],
-      ["Suspended", f.suspended_count, f.suspended_count ? "warn" : ""],
+      ["Live resources", s.resources, "good"],
+      ["Dead links", s.dead_links, s.dead_links ? "warn" : ""],
+      ["Times opened", s.total_opens, ""],
+      ["Topics", s.topics, ""],
+      ["Accounts", s.accounts, ""],
+      ["Trusted contributors", s.trusted_contributors, ""],
+      ["Reviews", s.reviews, ""],
+      ["Suspended", s.suspended_accounts, s.suspended_accounts ? "warn" : ""],
     ];
+    const last = s.last_import;
     return `<div class="stats">${tiles.map(([k, v, c]) =>
       `<div class="stat"><div class="stat-k">${k}</div><div class="stat-v ${c}">${esc(v)}</div></div>`).join("")}</div>
-      <h2>Best sellers</h2>${sqlTable(f.top_books, "Nothing sold yet.")}
-      <h2>Revenue by category</h2>${sqlTable(f.revenue_by_category, "No sales yet.")}`;
+      <h2>Last import</h2>
+      ${last ? sqlTable([last], "") : `<p class="empty">No import has run yet.</p>`}`;
   },
 
   async reports() {
     const r = await api("/admin/analytics");
     const sections = [
-      ["Revenue by month", "revenue_by_month",
-       "A window function over a monthly CTE — sales, fines and a running total."],
-      ["Category performance", "category_performance",
-       "A LEFT JOIN, so a category that has sold nothing still shows up."],
-      ["Best sellers", "best_sellers",
-       "RANK() partitioned by category, so each shelf has its own leader."],
-      ["Customers by lifetime spend", "customer_value",
-       "Derived from the orders table, not a counter on the account."],
-      ["Moderation", "moderation", "Taboo-word activity per customer."],
-      ["Browsed but never bought", "dead_stock", "The shelf's quiet failures."],
+      ["Catalogue growth", "catalogue_growth",
+       "A window function over a monthly CTE: resources added, with a running total."],
+      ["Topic coverage", "topic_coverage",
+       "A LEFT JOIN, so a topic with nothing in it still shows up, with a zero."],
+      ["Most opened in each topic", "most_opened",
+       "RANK() partitioned by topic, so each topic has its own leader."],
+      ["Not opened yet", "undiscovered", "Live resources nobody has clicked: candidates to feature."],
+      ["Contributors", "contributors", "Who writes the reviews, and how many were blocked."],
+      ["Moderation", "moderation", "Taboo-word activity per account."],
+      ["Import history", "import_history", "One row per run, including failures."],
     ];
     return `<p class="lede">Computed in SQL against the live schema — CTEs,
       window functions and deliberate outer joins.</p>` +
@@ -874,10 +712,10 @@ const adminPanels = {
   async orders() {
     const lists = await api("/admin/order-lists");
     return `
-      <h2>To order</h2>
+      <h2>Recommended</h2>
       <p class="query-note">More than 3 ratings, weighted average above 4.</p>
       ${sqlTable(lists.to_order, "Nothing qualifies yet.")}
-      <h2>Do not order</h2>
+      <h2>Not recommended</h2>
       <p class="query-note">More than 3 ratings, weighted average below 2.</p>
       ${sqlTable(lists.no_order, "Nothing qualifies yet.")}`;
   },
@@ -885,18 +723,15 @@ const adminPanels = {
   async accounts() {
     const rows = await api("/admin/accounts");
     return `<table class="table"><thead><tr>
-        <th>Username</th><th>Name</th><th>Role</th><th class="num">Balance</th>
-        <th class="num">Spent</th><th class="num">Warnings</th><th>State</th><th></th>
+        <th>Username</th><th>Name</th><th>Role</th>
+        <th class="num">Warnings</th><th>State</th><th></th>
       </tr></thead><tbody>${rows.map((a) => `
         <tr>
           <td>${esc(a.username)}</td><td>${esc(a.display_name)}</td>
           <td>${esc(a.role_name)}</td>
-          <td class="num ${Number(a.balance) < 0 ? "bad" : ""}">${money(a.balance)}</td>
-          <td class="num">${money(a.total_spent)}</td>
           <td class="num">${a.warnings}</td>
           <td>${a.suspended ? `<span class="badge bad">suspended</span>` : "active"}</td>
           <td class="num">
-            <button class="btn btn-ghost btn-small" data-deposit="${a.id}">Deposit</button>
             ${a.suspended ? `<button class="btn btn-ghost btn-small" data-reopen="${a.id}">Reopen</button>` : ""}
           </td>
         </tr>`).join("")}</tbody></table>`;
@@ -906,7 +741,7 @@ const adminPanels = {
     const words = await api("/admin/taboo");
     return `
       <p class="lede">A comment containing more than three of these is blocked
-        and earns the customer a warning.</p>
+        and earns its author a warning.</p>
       <div class="chips">${words.map((w) =>
         `<button class="chip" data-untaboo="${esc(w)}">${esc(w)} ×</button>`).join("")}</div>
       <form class="search" id="taboo-form">
@@ -922,8 +757,6 @@ const adminPanels = {
         <label>Author <input id="nb-author" required></label>
         <label>Category <input id="nb-category" required placeholder="literature"></label>
         <label>Year <input id="nb-year" type="number" min="0" max="2200"></label>
-        <label>Price <input id="nb-price" type="number" min="0" step="0.01" required></label>
-        <label>Stock <input id="nb-stock" type="number" min="0" value="5"></label>
         <label>Description <textarea id="nb-desc"></textarea></label>
         <button class="btn btn-solid">Add to the catalogue</button>
       </form>`;
@@ -951,22 +784,13 @@ async function showAdmin(panel) {
     scroller.appendChild(table);
   });
 
-  $$("[data-deposit]", body).forEach((b) => b.addEventListener("click", async () => {
-    const amount = Number(prompt("Amount to credit:", "20"));
-    if (!amount || amount <= 0) return;
-    try {
-      await api(`/admin/accounts/${b.dataset.deposit}/deposit`,
-                { method: "POST", body: { amount: String(amount) } });
-      toast("Deposited.", "good");
-      showAdmin("accounts");
-    } catch (e) { toast(e.message, "bad"); }
-  }));
-
   $$("[data-reopen]", body).forEach((b) => b.addEventListener("click", async () => {
-    const amount = Number(prompt("Deposit to clear the balance:", "20"));
+    // OK clears the warnings too; Cancel reopens and keeps them, so one more
+    // blocked comment suspends the account again.
+    const clear = confirm("Reopen the account. Also clear its warnings?");
     try {
       await api(`/admin/accounts/${b.dataset.reopen}/reopen`,
-                { method: "POST", body: { amount: String(amount || 0.01) } });
+                { method: "POST", body: { clear_warnings: clear } });
       toast("Account reopened.", "good");
       showAdmin("accounts");
     } catch (e) { toast(e.message, "bad"); }
@@ -1001,8 +825,6 @@ async function showAdmin(panel) {
           title: $("#nb-title").value, author: $("#nb-author").value,
           category: $("#nb-category").value.toLowerCase(),
           year: Number($("#nb-year").value) || null,
-          price: String($("#nb-price").value),
-          stock: Number($("#nb-stock").value) || 0,
           description: $("#nb-desc").value,
         },
       });
@@ -1019,8 +841,7 @@ function show(view) {
   $$(".view").forEach((v) => v.classList.toggle("on", v.dataset.view === view));
   $$(".nav button").forEach((b) => b.classList.toggle("on", b.dataset.view === view));
   if (view === "account") paintAccount();
-  if (view === "orders") paintOrders().catch((e) => toast(e.message, "bad"));
-  if (view === "admin") showAdmin("finance");
+  if (view === "admin") showAdmin("summary");
   window.scrollTo(0, 0);
 }
 
@@ -1032,7 +853,7 @@ async function signIn(username, password) {
   });
   storeTokens(data);
   paintSession();
-  await Promise.all([loadPicks(), loadShelf(), loadCart()]);
+  await Promise.all([loadPicks(), loadShelf()]);
   $("#auth").hidden = true;
   toast(`Signed in as ${data.session.display_name || data.session.username}.`, "good");
 }
@@ -1046,7 +867,6 @@ async function signOut() {
   } catch { /* signing out must never fail visibly */ }
   clearTokens();
   paintSession();
-  paintCartCount();
   await Promise.all([loadPicks(), loadShelf()]);
   show("shelf");
   toast("Signed out. You are browsing as a visitor.");
@@ -1068,8 +888,6 @@ function wire() {
     b.addEventListener("click", () => { $("#sheet").hidden = true; }));
   $$("[data-close-auth]").forEach((b) =>
     b.addEventListener("click", () => { $("#auth").hidden = true; }));
-  $$("[data-close-cart]").forEach((b) =>
-    b.addEventListener("click", () => { $("#cart-sheet").hidden = true; }));
   $$("[data-close-camera]").forEach((b) =>
     b.addEventListener("click", closeCamera));
 
@@ -1077,7 +895,6 @@ function wire() {
     if (e.key !== "Escape") return;
     $("#sheet").hidden = true;
     $("#auth").hidden = true;
-    $("#cart-sheet").hidden = true;
     if (!$("#camera").hidden) closeCamera();
   });
 
@@ -1085,8 +902,6 @@ function wire() {
     if (state.session.signed_in) signOut();
     else { $("#auth").hidden = false; $("#li-user").focus(); }
   });
-
-  $("#cart-btn").addEventListener("click", () => openCart());
 
   async function attemptSignIn(username, password) {
     try {
@@ -1124,12 +939,11 @@ function wire() {
           username: $("#rg-user").value.trim(),
           password: $("#rg-pass").value,
           display_name: $("#rg-name").value.trim(),
-          opening_deposit: String(Number($("#rg-dep").value) || 0),
         },
       });
       storeTokens(data);
       paintSession();
-      await Promise.all([loadPicks(), loadShelf(), loadCart()]);
+      await Promise.all([loadPicks(), loadShelf()]);
       $("#auth").hidden = true;
       toast("Account created. Enrol your face from your account page.", "good");
       show("account");

@@ -18,21 +18,10 @@ from ..db.base import get_session
 from ..services import auth
 
 
-#: Rank, lowest first. "At least this role" is an index comparison.
-ROLE_ORDER = [m.VISITOR, m.REGISTERED, m.VIP, m.SUPER_USER]
-ROLE_NAMES = {
-    m.VISITOR: "Visitor",
-    m.REGISTERED: "Registered customer",
-    m.VIP: "VIP customer",
-    m.SUPER_USER: "Super-user",
-}
-
-
-def role_at_least(role: str, minimum: str) -> bool:
-    try:
-        return ROLE_ORDER.index(role) >= ROLE_ORDER.index(minimum)
-    except ValueError:
-        return False
+# One definition of the roles, in db/models, used by the API and the
+# assistant alike.
+ROLE_NAMES = m.ROLE_NAMES
+role_at_least = m.role_at_least
 
 
 def db_session() -> Session:

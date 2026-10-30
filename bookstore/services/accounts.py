@@ -1,32 +1,73 @@
-"""Accounts: registration, sign-in, suspension, deposits and the warning ladder.
+"""Accounts: registration, sign-in, suspension, promotion and the warning ladder.
 
-The privilege rules from the specification live here. They are the same rules
-the file-backed version enforced; only the storage underneath changed.
+The privilege rules from the specification live here, reinterpreted for a
+free platform: standing is earned by writing reviews that pass moderation,
+and lost by writing ones that do not.
+
+Password hashing lives here too, because accounts are the only thing that
+uses it.
 """
 
 from __future__ import annotations
 
-from decimal import Decimal
-from typing import Optional, Tuple
+import hashlib
+import hmac
+import os
+from typing import Dict, Optional, Tuple
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from .. import models as legacy          # PBKDF2 helpers, unchanged
 from ..db import models as m
-from . import pricing
 
 
 class AccountError(Exception):
     """Something the caller did wrong, phrased for a person to read."""
 
 
+# --------------------------------------------------------------- passwords
+#
+# PBKDF2 from the standard library: salted, slow on purpose, and no extra
+# dependency. 120,000 rounds of SHA-256 takes a noticeable fraction of a
+# second, which is the point -- it makes guessing expensive.
+
+_PBKDF2_ROUNDS = 120_000
+
+
+def hash_password(password: str,
+                  salt: Optional[bytes] = None) -> Dict[str, str]:
+    if salt is None:
+        salt = os.urandom(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", (password or "").encode("utf-8"), salt, _PBKDF2_ROUNDS)
+    return {"salt": salt.hex(), "password_hash": digest.hex()}
+
+
+def verify_password(password: str, salt_hex: str, expected_hex: str) -> bool:
+    """Check a password against a stored salt and hash.
+
+    Returns False for a malformed stored credential rather than raising, and
+    compares in constant time so the response time does not leak how much of
+    the hash matched.
+    """
+    if not salt_hex or not expected_hex:
+        return False
+    try:
+        salt = bytes.fromhex(salt_hex)
+        expected = bytes.fromhex(expected_hex)
+    except (ValueError, TypeError):
+        return False
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", (password or "").encode("utf-8"), salt, _PBKDF2_ROUNDS)
+    return hmac.compare_digest(digest, expected)
+
+
 # ----------------------------------------------------------- registration
 
 
 def create_account(session: Session, username: str, password: str, *,
-                   role: str = m.REGISTERED, balance: Decimal | float = 0,
+                   role: str = m.REGISTERED,
                    display_name: str = "") -> m.User:
     username = (username or "").strip()
     if not username:
@@ -34,14 +75,13 @@ def create_account(session: Session, username: str, password: str, *,
     if len(password or "") < 4:
         raise AccountError("The password must be at least 4 characters.")
 
-    secret = legacy.hash_password(password)
+    secret = hash_password(password)
     user = m.User(
         username=username,
         display_name=display_name or username.title(),
         password_hash=secret["password_hash"],
         salt=secret["salt"],
         role=role,
-        balance=pricing.money(balance),
     )
     session.add(user)
 
@@ -68,13 +108,13 @@ def find_by_username(session: Session, username: str) -> Optional[m.User]:
 
 
 def check_password(user: m.User, password: str) -> bool:
-    return legacy.verify_password(password, user.salt, user.password_hash)
+    return verify_password(password, user.salt, user.password_hash)
 
 
 def set_password(session: Session, user: m.User, password: str) -> None:
     if len(password or "") < 4:
         raise AccountError("The password must be at least 4 characters.")
-    secret = legacy.hash_password(password)
+    secret = hash_password(password)
     user.password_hash = secret["password_hash"]
     user.salt = secret["salt"]
     session.add(m.Event(kind="password_changed", user_id=user.id, detail=""))
@@ -84,30 +124,12 @@ def set_password(session: Session, user: m.User, password: str) -> None:
 def can_sign_in(user: m.User) -> Tuple[bool, str]:
     """Specification item 6: a suspended account cannot sign in."""
     if user.suspended:
-        return False, ("This account is suspended: %s. A super-user must "
-                       "reopen it." % (user.suspend_reason or "contact the shop"))
+        return False, ("This account is suspended: %s. An administrator must "
+                       "reopen it." % (user.suspend_reason or "contact us"))
     return True, ""
 
 
-# -------------------------------------------------------------- the money
-
-
-def deposit(session: Session, user: m.User, amount: Decimal | float,
-            note: str = "deposit") -> Decimal:
-    amount = pricing.money(amount)
-    if amount <= 0:
-        raise AccountError("A deposit must be more than zero.")
-
-    user.balance = pricing.money(user.balance + amount)
-    session.add(m.Transaction(kind="deposit", user_id=user.id,
-                              amount=amount, note=note))
-    session.add(m.Event(kind="deposit", user_id=user.id,
-                        detail="$%s (%s)" % (amount, note)))
-
-    # A deposit that clears a negative balance does not by itself reopen the
-    # account: the specification gives that decision to the super-user.
-    session.flush()
-    return user.balance
+# ---------------------------------------------------------- suspension
 
 
 def suspend(session: Session, user: m.User, reason: str) -> None:
@@ -121,22 +143,20 @@ def suspend(session: Session, user: m.User, reason: str) -> None:
 
 
 def reopen(session: Session, user: m.User, *,
-           deposit_amount: Decimal | float = 0) -> Decimal:
-    """Specification item 6: only a super-user reopens a suspended account."""
-    if deposit_amount:
-        deposit(session, user, deposit_amount, note="reopening deposit")
+           clear_warnings: bool = False) -> None:
+    """Specification item 6: only an administrator reopens an account.
 
-    if user.balance < 0:
-        raise AccountError(
-            "The balance is still $%s. Deposit enough to clear it before "
-            "reopening." % pricing.money(user.balance))
-
+    Warnings are kept unless the administrator clears them, so a reopened
+    account that misbehaves once more is suspended again straight away.
+    """
     user.suspended = False
     user.suspend_reason = ""
-    session.add(m.Event(kind="account_reopened", user_id=user.id,
-                        detail="balance $%s" % pricing.money(user.balance)))
+    if clear_warnings:
+        user.warnings = 0
+    session.add(m.Event(
+        kind="account_reopened", user_id=user.id,
+        detail="warnings cleared" if clear_warnings else "warnings kept"))
     session.flush()
-    return user.balance
 
 
 # ------------------------------------------------------- the warning ladder
@@ -146,14 +166,12 @@ def apply_warning(session: Session, user: m.User, reason: str,
                   config) -> Tuple[bool, bool]:
     """Specification items 7 and 8.
 
-    More than ``warning_limit`` warnings suspends a registered customer and
-    demotes a VIP back to registered. Returns ``(suspended, demoted)``.
+    More than ``warning_limit`` warnings suspends a member and demotes a
+    trusted contributor back to member. Returns ``(suspended, demoted)``.
 
-    A demoted VIP is marked ``vip_ineligible``, which is this project's
-    resolution of a contradiction in the specification: item 7 says a demoted
-    VIP becomes a registered customer, and item 8 says a registered customer
-    who has bought enough becomes a VIP -- together they would promote the
-    person straight back. Recorded under `spec_interpretation` in settings.
+    A demoted contributor is marked ``promotion_blocked``. Without it, the
+    next accepted review would promote them straight back, and the demotion
+    would last one review.
     """
     user.warnings += 1
     session.add(m.Event(kind="warning", user_id=user.id,
@@ -163,7 +181,7 @@ def apply_warning(session: Session, user: m.User, reason: str,
     if user.warnings > config.warning_limit:
         if user.role == m.VIP:
             user.role = m.REGISTERED
-            user.vip_ineligible = True
+            user.promotion_blocked = True
             demoted = True
             session.add(m.Event(
                 kind="demoted", user_id=user.id,
@@ -174,3 +192,31 @@ def apply_warning(session: Session, user: m.User, reason: str,
 
     session.flush()
     return suspended, demoted
+
+
+# --------------------------------------------------------------- promotion
+
+
+def maybe_promote(session: Session, user: m.User, config) -> bool:
+    """Promote a member to trusted contributor once they have earned it.
+
+    Earned means ``trusted_review_threshold`` reviews that passed
+    moderation. Blocked reviews do not count, administrators are never
+    "promoted", and a demoted contributor stays demoted.
+    """
+    if user.role != m.REGISTERED or user.promotion_blocked:
+        return False
+
+    accepted = session.execute(
+        select(func.count(m.Review.id)).where(
+            m.Review.user_id == user.id, m.Review.blocked.is_(False))
+    ).scalar_one()
+    if accepted < config.trusted_review_threshold:
+        return False
+
+    user.role = m.VIP
+    session.add(m.Event(
+        kind="promoted", user_id=user.id,
+        detail="RC -> VC after %d accepted reviews" % accepted))
+    session.flush()
+    return True

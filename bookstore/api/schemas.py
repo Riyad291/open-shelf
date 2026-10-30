@@ -27,7 +27,6 @@ class RegisterIn(BaseModel):
     username: str = Field(..., min_length=1, max_length=64)
     password: str = Field(..., min_length=4, max_length=128)
     display_name: str = Field("", max_length=128)
-    opening_deposit: Decimal = Field(Decimal("0"), ge=0, le=Decimal("100000"))
 
 
 class LoginIn(BaseModel):
@@ -51,12 +50,10 @@ class SessionOut(Out):
     display_name: Optional[str] = None
     role: str
     role_name: str
-    balance: Optional[Decimal] = None
     warnings: Optional[int] = None
     suspended: bool = False
-    purchase_count: Optional[int] = None
-    total_spent: Optional[Decimal] = None
-    vip_discount: Optional[float] = None
+    trusted: bool = False
+    review_count: int = 0
     face_enrolled: bool = False
 
 
@@ -82,13 +79,9 @@ class BookOut(Out):
     author: str
     category: str
     year: Optional[int] = None
-    price: Decimal
-    your_price: Decimal
-    stock: int
     description: str = ""
     cover_url: Optional[str] = None
     browse_count: int = 0
-    purchase_count: int = 0
     rating: Optional[float] = None
     rating_count: int = 0
     list_status: str = "normal"
@@ -105,8 +98,6 @@ class BookCreateIn(BaseModel):
     author: str = Field(..., min_length=1, max_length=255)
     category: str = Field(..., min_length=1, max_length=64)
     year: Optional[int] = Field(None, ge=0, le=2200)
-    price: Decimal = Field(..., ge=0, le=Decimal("100000"))
-    stock: int = Field(0, ge=0)
     description: str = ""
 
 
@@ -121,8 +112,6 @@ class BookUpdateIn(BaseModel):
     author: Optional[str] = Field(None, min_length=1, max_length=255)
     category: Optional[str] = Field(None, min_length=1, max_length=64)
     year: Optional[int] = Field(None, ge=0, le=2200)
-    price: Optional[Decimal] = Field(None, ge=0, le=Decimal("100000"))
-    stock: Optional[int] = Field(None, ge=0)
     description: Optional[str] = None
 
 
@@ -162,84 +151,6 @@ class ImageHitOut(BaseModel):
     matched_on: str = "cover"
 
 
-# ------------------------------------------------------------------- cart
-
-
-class CartItemIn(BaseModel):
-    book_id: int
-    quantity: int = Field(1, ge=1, le=99)
-
-
-class QuantityIn(BaseModel):
-    quantity: int = Field(..., ge=0, le=99)
-
-
-class CartLineOut(BaseModel):
-    book_id: int
-    title: str
-    author: str
-    unit_price: Decimal
-    list_price: Decimal
-    quantity: int
-    line_total: Decimal
-    in_stock: int
-    enough_stock: bool
-    cover_url: Optional[str] = None
-
-
-class CartOut(BaseModel):
-    lines: List[CartLineOut]
-    item_count: int
-    subtotal: Decimal
-    discount: Decimal
-    total: Decimal
-    affordable: bool
-    balance: Decimal
-
-
-# ----------------------------------------------------------------- orders
-
-
-class OrderLineOut(Out):
-    book_id: int
-    title: str
-    quantity: int
-    unit_price: Decimal
-    line_total: Decimal
-    cover_url: Optional[str] = None
-
-
-class PaymentOut(Out):
-    id: int
-    method: str
-    amount: Decimal
-    status: str
-    reference: str
-    created_at: dt.datetime
-
-
-class OrderOut(Out):
-    id: int
-    status: str
-    subtotal: Decimal
-    discount: Decimal
-    total: Decimal
-    discount_rate: Decimal
-    placed_at: Optional[dt.datetime] = None
-    items: List[OrderLineOut] = []
-    payments: List[PaymentOut] = []
-
-
-class CheckoutOut(BaseModel):
-    ok: bool
-    message: str
-    order: Optional[OrderOut] = None
-    promoted: bool = False
-    new_balance: Decimal
-    fine_applied: Decimal = Decimal("0.00")
-    suspended: bool = False
-
-
 # ---------------------------------------------------------------- reviews
 
 
@@ -259,7 +170,7 @@ class ReviewOut(Out):
     stars: int
     comment: str
     author: str = "visitor"
-    verified_purchase: bool = False
+    trusted_reviewer: bool = False
     weight: Decimal = Decimal("1.00")
     created_at: dt.datetime
 
@@ -343,10 +254,6 @@ class AccountOut(Out):
     display_name: str
     role: str
     role_name: str
-    balance: Decimal
-    total_spent: Decimal
-    purchase_count: int
-    total_fines: Decimal
     warnings: int
     suspended: bool
     suspend_reason: str = ""
@@ -359,9 +266,8 @@ class AccountUpdateIn(BaseModel):
     role: Optional[str] = Field(None, pattern="^(RC|VC|SU)$")
 
 
-class DepositIn(BaseModel):
-    amount: Decimal = Field(..., gt=0, le=Decimal("100000"))
-    note: str = Field("deposit", max_length=255)
+class ReopenIn(BaseModel):
+    clear_warnings: bool = False
 
 
 class SuspendIn(BaseModel):
@@ -392,7 +298,7 @@ class HealthOut(BaseModel):
     database: str
     books: int
     accounts: int
-    orders: int
+    resources: int
     knowledge_base_chunks: int
     face_model_trained: bool
     face_detector: str

@@ -63,10 +63,7 @@ def ensure_dirs() -> None:
 # ---------------------------------------------------------------------------
 
 DEFAULTS: Dict[str, Any] = {
-    "fine_amount": 1.0,
-    "vip_discount": 0.10,
-    "vip_purchase_threshold": 3,
-    "vip_spend_threshold": 200.0,
+    "trusted_review_threshold": 3,
     "warning_limit": 2,
     # Requirement 4: a face is the login. Creating an account enrols one,
     # and an enrolled account signs in with the camera rather than a
@@ -76,14 +73,13 @@ DEFAULTS: Dict[str, Any] = {
     "require_face_login": True,
     "super_user_password_bootstrap": True,
     "face_enrolment_samples": 5,
-    "purchaser_weight": 2.0,
+    "trusted_weight": 2.0,
     "normal_weight": 1.0,
     "min_ratings_for_list": 3,
     "no_order_max_avg": 2.0,
     "to_order_min_avg": 4.0,
     "max_taboo_before_block": 3,
     "spec_interpretation": {
-        "allow_overdraft_purchase": False,
         "demotion_blocks_repromotion": True,
         "order_lists_use_weighted_average": True,
         "visitors_may_review": True,
@@ -197,28 +193,16 @@ class Config:
     # -- convenience accessors used all over the business rules -------------
 
     @property
-    def fine_amount(self) -> float:
-        return float(self.get("fine_amount"))
-
-    @property
-    def vip_discount(self) -> float:
-        return float(self.get("vip_discount"))
-
-    @property
-    def vip_purchase_threshold(self) -> int:
-        return int(self.get("vip_purchase_threshold"))
-
-    @property
-    def vip_spend_threshold(self) -> float:
-        return float(self.get("vip_spend_threshold"))
-
-    @property
     def warning_limit(self) -> int:
         return int(self.get("warning_limit"))
 
     @property
-    def purchaser_weight(self) -> float:
-        return float(self.get("purchaser_weight"))
+    def trusted_weight(self) -> float:
+        return float(self.get("trusted_weight"))
+
+    @property
+    def trusted_review_threshold(self) -> int:
+        return int(self.get("trusted_review_threshold"))
 
     @property
     def normal_weight(self) -> float:

@@ -1,8 +1,8 @@
 """Turning ORM rows into the HTTP contract.
 
-One place, because the same book appears in the catalogue, in search results,
-in the cart, in an order and in a recommendation -- and a price that differs
-between those screens is a bug the customer notices before anybody else does.
+One place, because the same book appears in the catalogue, in search
+results, on a recommendation and on the shelf -- and a rating that differs
+between those screens is a bug a reader notices before anybody else does.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..db import models as m
-from ..services import pricing, reviews as review_service
+from ..services import reviews as review_service
 from . import schemas as S
 from .deps import ROLE_NAMES
 
@@ -69,13 +69,9 @@ def book_out(book: m.Book, user: Optional[m.User], config,
         author=book.author,
         category=book.category,
         year=book.year,
-        price=pricing.money(book.price),
-        your_price=pricing.price_for(user, book, config.vip_discount),
-        stock=book.stock,
         description=book.description or "",
         cover_url=cover_url(book),
         browse_count=book.browse_count,
-        purchase_count=int(book.purchase_count or 0),
         rating=rating.get("weighted_average"),
         rating_count=rating.get("count", 0),
         list_status=status,
@@ -99,7 +95,7 @@ def review_out(review: m.Review) -> S.ReviewOut:
         stars=review.stars,
         comment=review.comment,
         author=author,
-        verified_purchase=review.verified_purchase,
+        trusted_reviewer=review.trusted_reviewer,
         weight=review.weight,
         created_at=review.created_at,
     )
@@ -119,37 +115,12 @@ def session_out(user: Optional[m.User], config,
         display_name=user.display_name,
         role=user.role,
         role_name=ROLE_NAMES.get(user.role, user.role),
-        balance=pricing.money(user.balance),
         warnings=user.warnings,
         suspended=user.suspended,
-        purchase_count=int(user.purchase_count or 0),
-        total_spent=pricing.money(user.total_spent),
-        vip_discount=config.vip_discount if user.role == m.VIP else 0.0,
+        trusted=user.role in (m.VIP, m.SUPER_USER),
+        # One lazy load of this user's reviews, for one user: not an N+1.
+        review_count=sum(1 for r in user.reviews if not r.blocked),
         face_enrolled=face_samples > 0,
-    )
-
-
-def order_out(order: m.Order) -> S.OrderOut:
-    return S.OrderOut(
-        id=order.id,
-        status=order.status,
-        subtotal=order.subtotal,
-        discount=order.discount,
-        total=order.total,
-        discount_rate=order.discount_rate,
-        placed_at=order.placed_at,
-        items=[S.OrderLineOut(
-            book_id=item.book_id,
-            title=item.title_at_purchase or (item.book.title if item.book else ""),
-            quantity=item.quantity,
-            unit_price=item.unit_price,
-            line_total=item.line_total,
-            cover_url="/api/books/%d/cover" % item.book_id,
-        ) for item in order.items],
-        payments=[S.PaymentOut(
-            id=p.id, method=p.method, amount=p.amount, status=p.status,
-            reference=p.reference, created_at=p.created_at,
-        ) for p in order.payments],
     )
 
 
@@ -160,10 +131,6 @@ def account_out(user: m.User, face_samples: int = 0) -> S.AccountOut:
         display_name=user.display_name,
         role=user.role,
         role_name=ROLE_NAMES.get(user.role, user.role),
-        balance=pricing.money(user.balance),
-        total_spent=pricing.money(user.total_spent),
-        purchase_count=int(user.purchase_count or 0),
-        total_fines=pricing.money(user.total_fines),
         warnings=user.warnings,
         suspended=user.suspended,
         suspend_reason=user.suspend_reason or "",

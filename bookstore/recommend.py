@@ -21,7 +21,7 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-from . import models
+from .db import models
 from .ports import RatingRules
 from .storage import Storage
 

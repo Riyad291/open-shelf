@@ -42,8 +42,6 @@ def book_as_dict(book: m.Book) -> dict:
         "author": book.author,
         "category": book.category,
         "year": book.year,
-        "price": float(book.price),
-        "stock": book.stock,
         "description": book.description or "",
         "cover_path": book.cover_path or "",
         "figure_paths": [figure.path for figure in book.figures],

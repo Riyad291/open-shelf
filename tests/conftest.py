@@ -15,7 +15,6 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
-from decimal import Decimal
 
 import pytest
 from sqlalchemy.orm import Session
@@ -104,9 +103,9 @@ def make_book(session):
     from bookstore.db import models as m
 
     def factory(title="A Book", author="Ann Author", category="literature",
-                year=1900, price="10.00", stock=5, **extra):
+                year=1900, **extra):
         book = m.Book(title=title, author=author, category=category,
-                      year=year, price=Decimal(str(price)), stock=stock,
+                      year=year,
                       description=extra.pop("description", "A book."), **extra)
         session.add(book)
         session.flush()
@@ -123,11 +122,11 @@ def make_user(session):
     counter = {"n": 0}
 
     def factory(username=None, password="pw12345", role=m.REGISTERED,
-                balance="100.00", **extra):
+                **extra):
         counter["n"] += 1
         return accounts.create_account(
             session, username or ("person%d" % counter["n"]), password,
-            role=role, balance=Decimal(str(balance)), **extra)
+            role=role, **extra)
 
     return factory
 

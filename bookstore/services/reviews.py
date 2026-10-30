@@ -1,9 +1,13 @@
 """Ratings, comments, moderation and the two order lists.
 
-Specification item 7 in full: any user may comment; a comment from somebody
-who bought the book counts double; taboo words are masked; more than three of
-them blocks the comment and earns a warning; more than two warnings suspends a
-registered customer or demotes a VIP.
+Specification item 7, as a free platform reads it: any user may comment; a
+rating from a trusted contributor counts double; taboo words are masked; more
+than three of them blocks the comment and earns a warning; more than two
+warnings suspends a member or demotes a trusted contributor.
+
+Trust is earned here too. A member whose reviews pass moderation often enough
+is promoted (``accounts.maybe_promote``), which is what item 8 became once
+there was nothing to buy.
 
 The taboo screening itself is unchanged -- ``moderation.screen_comment`` is
 pure text in, text out, so it did not care that the storage underneath moved.
@@ -42,15 +46,17 @@ class ReviewOutcome:
         self.demoted = demoted
 
 
-def has_purchased(session: Session, user: m.User, book_id: int) -> bool:
-    """Did this customer actually buy this book? One aggregate, not a walk."""
-    return bool(session.execute(
-        select(func.count(m.OrderItem.id))
-        .select_from(m.OrderItem)
-        .join(m.Order, m.Order.id == m.OrderItem.order_id)
-        .where(m.Order.user_id == user.id, m.Order.status == "paid",
-               m.OrderItem.book_id == book_id)
+def accepted_review_count(session: Session, user: m.User) -> int:
+    """How many of this user's reviews passed moderation. One aggregate."""
+    return int(session.execute(
+        select(func.count(m.Review.id)).where(
+            m.Review.user_id == user.id, m.Review.blocked.is_(False))
     ).scalar_one())
+
+
+def is_trusted(user: Optional[m.User]) -> bool:
+    """Trusted contributors and administrators have ratings that count double."""
+    return user is not None and user.role in (m.VIP, m.SUPER_USER)
 
 
 def already_reviewed(session: Session, user: m.User, book_id: int) -> bool:
@@ -164,7 +170,7 @@ def submit(session: Session, user: Optional[m.User], book: m.Book,
             book_id=book.id, user_id=None, role_at_time=m.VISITOR,
             stars=stars, raw_comment=screened.original,
             comment=screened.masked, taboo_hits=screened.hits,
-            blocked=False, verified_purchase=False,
+            blocked=False, trusted_reviewer=False,
             weight=Decimal(str(config.normal_weight)),
         )
         session.add(review)
@@ -174,16 +180,16 @@ def submit(session: Session, user: Optional[m.User], book: m.Book,
             message += " %d taboo word(s) were masked." % screened.hits
         return ReviewOutcome(review, message, taboo_hits=screened.hits)
 
-    # -- a signed-in customer ---------------------------------------------
-    purchased = has_purchased(session, user, book.id)
-    weight = Decimal(str(config.purchaser_weight if purchased
+    # -- a signed-in member -----------------------------------------------
+    trusted = is_trusted(user)
+    weight = Decimal(str(config.trusted_weight if trusted
                          else config.normal_weight))
 
     review = m.Review(
         book_id=book.id, user_id=user.id, role_at_time=user.role,
         stars=stars, raw_comment=screened.original, comment=screened.masked,
         taboo_hits=screened.hits, blocked=screened.blocked,
-        verified_purchase=purchased, weight=weight,
+        trusted_reviewer=trusted, weight=weight,
     )
     session.add(review)
     session.flush()
@@ -195,8 +201,8 @@ def submit(session: Session, user: Optional[m.User], book: m.Book,
         if outcome.suspended:
             message += " Your account has been suspended."
         elif outcome.demoted:
-            message += (" Your VIP status has been revoked; you are now a "
-                        "registered customer.")
+            message += (" Your trusted-contributor status has been revoked; "
+                        "you are now a member.")
 
         return ReviewOutcome(
             review, message, ok=False, blocked=True,
@@ -207,8 +213,11 @@ def submit(session: Session, user: Optional[m.User], book: m.Book,
     message = "Review posted."
     if screened.hits:
         message += " %d taboo word(s) were masked." % screened.hits
-    if purchased:
-        message += " Your rating counts double because you bought this book."
+    if trusted:
+        message += " Your rating counts double as a trusted contributor."
+    if accounts.maybe_promote(session, user, config):
+        message += (" You are now a trusted contributor: your ratings count "
+                    "double from here.")
     return ReviewOutcome(review, message, taboo_hits=screened.hits)
 
 

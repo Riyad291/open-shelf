@@ -1,4 +1,4 @@
-"""Super-user management: books, accounts, finances, lists and moderation.
+"""Administration: catalogue, accounts, insights and moderation.
 
 Specification items 5, 6 and 7. Every route here depends on
 ``require_super_user``, so privilege is declared rather than remembered.
@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from ...db import models as m
 from ...services import accounts, catalog as catalog_service
-from ...services import finance as finance_service
+from ...services import insights as insight_service
 from ...services import reviews as review_service
 from .. import present, runtime
 from .. import schemas as S
@@ -46,7 +46,6 @@ def create_book(body: S.BookCreateIn, session: Session = Depends(db_session)):
     book = m.Book(
         title=body.title.strip(), author=body.author.strip(),
         category=body.category.strip().lower(), year=body.year,
-        price=body.price, stock=body.stock,
         description=body.description or "")
     session.add(book)
     session.flush()
@@ -76,21 +75,17 @@ def delete_book(book_id: int, session: Session = Depends(db_session)):
     if book is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such book.")
 
-    sold = session.execute(
-        select(func.count(m.OrderItem.id))
-        .where(m.OrderItem.book_id == book_id)
+    reviewed = session.execute(
+        select(func.count(m.Review.id)).where(m.Review.book_id == book_id)
     ).scalar_one()
 
-    # order_items references books with ON DELETE RESTRICT on purpose: a
-    # receipt must survive the catalogue. Deleting a sold title would either
-    # fail at the constraint or destroy order history, so it is refused here
-    # with an explanation and a usable alternative.
-    if sold:
+    # Reviews are other people's writing. Deleting a book would cascade to
+    # them, so it is refused with an explanation rather than done silently.
+    if reviewed:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            "'%s' appears on %d past order line(s) and cannot be deleted "
-            "without destroying those receipts. Set its stock to 0 instead."
-            % (book.title, sold))
+            "'%s' carries %d review(s) and cannot be deleted without taking "
+            "them with it." % (book.title, reviewed))
 
     session.delete(book)
 
@@ -146,44 +141,27 @@ def delete_account(user_id: int, actor: m.User = Depends(require_super_user),
         raise HTTPException(status.HTTP_409_CONFLICT,
                             "You cannot delete the account you are using.")
 
-    paid = session.execute(
-        select(func.count(m.Order.id))
-        .where(m.Order.user_id == user_id, m.Order.status == "paid")
+    authored = session.execute(
+        select(func.count(m.Review.id)).where(m.Review.user_id == user_id)
     ).scalar_one()
-    if paid:
+    if authored:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            "That account has %d paid order(s). Suspend it instead -- "
-            "deleting it would take the orders with it." % paid)
+            "That account has written %d review(s). Suspend it instead -- "
+            "deleting it would take the reviews with it." % authored)
 
     session.delete(user)
 
 
-@router.post("/accounts/{user_id}/deposit", response_model=S.AccountOut)
-def deposit(user_id: int, body: S.DepositIn,
-            session: Session = Depends(db_session)):
-    user = session.get(m.User, user_id)
-    if user is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "No such account.")
-    try:
-        accounts.deposit(session, user, body.amount, body.note)
-    except accounts.AccountError as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
-    return present.account_out(user)
-
-
 @router.post("/accounts/{user_id}/reopen", response_model=S.AccountOut)
-def reopen(user_id: int, body: S.DepositIn | None = None,
+def reopen(user_id: int, body: S.ReopenIn | None = None,
            session: Session = Depends(db_session)):
-    """Specification item 6: only a super-user reopens a suspended account."""
+    """Specification item 6: only an administrator reopens an account."""
     user = session.get(m.User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such account.")
-    try:
-        accounts.reopen(session, user,
-                        deposit_amount=body.amount if body else 0)
-    except accounts.AccountError as exc:
-        raise HTTPException(status.HTTP_409_CONFLICT, str(exc))
+    accounts.reopen(session, user,
+                    clear_warnings=bool(body and body.clear_warnings))
     return present.account_out(user)
 
 
@@ -204,16 +182,16 @@ def suspend(user_id: int, body: S.SuspendIn,
 # ---------------------------------------------------------------- reports
 
 
-@router.get("/finance")
-def finance(session: Session = Depends(db_session)):
-    """Specification item 3: the finance report, for the super-user only."""
-    return finance_service.report(session)
+@router.get("/summary")
+def summary(session: Session = Depends(db_session)):
+    """Specification item 3: the administrator's report on the site."""
+    return insight_service.summary(session)
 
 
 @router.get("/analytics")
 def analytics(session: Session = Depends(db_session)):
     """Reporting queries: CTEs, window functions and deliberate outer joins."""
-    return finance_service.analytics(session)
+    return insight_service.analytics(session)
 
 
 @router.get("/order-lists", response_model=S.OrderListsOut)

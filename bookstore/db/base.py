@@ -125,7 +125,7 @@ def supports_row_locks(session: Session) -> bool:
 
     ``get_bind()`` rather than ``.bind``: the latter is None on a session
     bound per-mapper or via a scoped factory, and this would then raise
-    AttributeError inside checkout -- the single worst place for a surprise.
+    AttributeError deep inside a request -- the worst place for a surprise.
     """
     try:
         return session.get_bind().dialect.name not in ("sqlite",)

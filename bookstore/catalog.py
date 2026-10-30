@@ -16,9 +16,8 @@ import os
 import re
 from collections import Counter
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
-from . import models
 from .storage import Storage
 
 _TOKEN = re.compile(r"[a-z0-9']+")
@@ -147,7 +146,7 @@ class Catalog:
     # -- browsing -----------------------------------------------------------
 
     def all_books(self) -> List[dict]:
-        return [models.normalise_book(b) for b in self.db.list_books()]
+        return list(self.db.list_books())
 
     def categories(self) -> List[Tuple[str, int]]:
         counts = Counter(
@@ -291,72 +290,3 @@ class Catalog:
 
         hits.sort(key=lambda h: (-h.score, h.book.get("title", "")))
         return hits[:limit]
-
-    # -- SU book management (requirement 5) ---------------------------------
-
-    def add_book(
-        self,
-        title: str,
-        author: str,
-        category: str,
-        year: int,
-        price: float,
-        stock: int = 10,
-        description: str = "",
-        cover_path: str = "",
-        figure_paths: Optional[Iterable[str]] = None,
-        text_path: str = "",
-    ) -> dict:
-        if not (title or "").strip():
-            raise ValueError("Title is required.")
-        if not (author or "").strip():
-            raise ValueError("Author is required.")
-        try:
-            price = float(price)
-        except (TypeError, ValueError):
-            raise ValueError("Price must be a number.")
-        if price < 0:
-            raise ValueError("Price cannot be negative.")
-        try:
-            stock = int(stock)
-        except (TypeError, ValueError):
-            raise ValueError("Stock must be a whole number.")
-        if stock < 0:
-            raise ValueError("Stock cannot be negative.")
-        try:
-            year = int(year or 0)
-        except (TypeError, ValueError):
-            raise ValueError("Year must be a whole number.")
-
-        book = models.new_book(
-            self.db.next_book_id(), title, author, category, year, price,
-            stock=stock, description=description, cover_path=cover_path,
-            figure_paths=list(figure_paths or []), text_path=text_path,
-        )
-        self.db.put_book(book)
-        self._indexed_ids.discard(book["book_id"])  # force reindex on next search
-        return book
-
-    def update_book(self, book_id: str, **changes) -> dict:
-        book = self.db.get_book(book_id)
-        if not book:
-            raise ValueError("No such book: %s" % book_id)
-        allowed = {
-            "title", "author", "category", "year", "price", "stock",
-            "description", "cover_path", "figure_paths", "text_path",
-        }
-        for key, value in changes.items():
-            if key in allowed:
-                book[key] = value
-        self.db.put_book(book)
-        self._indexed_ids.discard(book_id)
-        return book
-
-    def delete_book(self, book_id: str) -> bool:
-        if book_id not in self.db.books:
-            return False
-        del self.db.books[book_id]
-        self.db.save_books()
-        self._indexed_ids.discard(book_id)
-        self._index.pop(book_id, None)
-        return True

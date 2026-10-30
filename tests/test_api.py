@@ -3,44 +3,39 @@
 The rules are tested against the services in ``test_rules.py``. These tests
 cover what is only visible at the boundary:
 
-* **Status codes.** A refused purchase, a missing book and a stock conflict
+* **Status codes.** A missing book, a refused review and a conflicting delete
   are different failures and must not all arrive as a 200 with a string.
 * **Privilege.** Every route that needs a role must reject the role below it.
   A rule that is right in the service is still a hole if the route forgot to
   ask who is calling.
-* **Scoping.** One customer must not be able to read another's orders.
+* **Scoping.** One member must not be able to edit another's review.
 * **Leakage.** No response anywhere may contain a password hash or a salt.
 """
 
 from __future__ import annotations
 
-from decimal import Decimal
-
 import pytest
 
 from bookstore.db import models as m
-from bookstore.services import accounts, cart, checkout, reviews
+from bookstore.services import accounts
 
 
 @pytest.fixture()
 def shop(session, config, make_book, make_user):
-    """A small shop with every role present and some history."""
+    """A small library with every role present."""
     books = {
         "cheap": make_book(title="A Cheap Book", author="Ann Author",
-                           category="literature", year=1920, price="5.00",
-                           stock=4),
+                           category="literature", year=1920),
         "dear": make_book(title="An Expensive Book", author="Bo Writer",
-                          category="science", year=1960, price="80.00",
-                          stock=2),
+                          category="science", year=1960),
         "last": make_book(title="The Last Copy", author="Cy Scribe",
-                          category="history", year=1890, price="12.00",
-                          stock=1),
+                          category="history", year=1890),
     }
     people = {
-        "alice": make_user("alice", balance="200.00", display_name="Alice"),
-        "broke": make_user("broke", balance="1.00", display_name="Broke"),
-        "vip": make_user("vip", role=m.VIP, balance="200.00"),
-        "boss": make_user("boss", role=m.SUPER_USER, balance="0.00"),
+        "alice": make_user("alice", display_name="Alice"),
+        "broke": make_user("broke", display_name="Quiet"),
+        "vip": make_user("vip", role=m.VIP),
+        "boss": make_user("boss", role=m.SUPER_USER),
     }
     session.commit()
     return {"books": books, "people": people}
@@ -90,14 +85,14 @@ class TestAuthentication:
     def test_register_then_use_the_token_it_returns(self, client):
         created = client.post("/api/auth/register", json={
             "username": "newcomer", "password": "pw12345",
-            "display_name": "New Comer", "opening_deposit": "30"})
+            "display_name": "New Comer"})
         assert created.status_code == 201
 
         token = created.json()["access_token"]
         who = client.get("/api/auth/session",
                          headers={"Authorization": "Bearer " + token}).json()
         assert who["username"] == "newcomer"
-        assert Decimal(who["balance"]) == Decimal("30")
+        assert who["role_name"] == "Member"
 
     def test_a_duplicate_username_is_refused(self, client):
         body = {"username": "twice", "password": "pw12345"}
@@ -163,119 +158,9 @@ class TestAuthentication:
                 assert secret not in body, "%s leaked %r" % (path, secret)
 
 
-class TestCartAndCheckout:
-
-    def test_the_cart_needs_an_account(self, client, shop):
-        assert client.get("/api/cart").status_code == 401
-
-    def test_adding_a_missing_book_is_404(self, client, sign_in, shop):
-        response = client.post("/api/cart/items", headers=sign_in("alice"),
-                               json={"book_id": 999999, "quantity": 1})
-        assert response.status_code == 404
-
-    def test_asking_for_more_than_the_stock_is_409(self, client, sign_in, shop):
-        response = client.post(
-            "/api/cart/items", headers=sign_in("alice"),
-            json={"book_id": shop["books"]["last"].id, "quantity": 5})
-        assert response.status_code == 409
-
-    def test_adding_the_same_book_twice_raises_the_quantity(
-            self, client, sign_in, shop):
-        alice = sign_in("alice")
-        book_id = shop["books"]["cheap"].id
-        client.post("/api/cart/items", headers=alice,
-                    json={"book_id": book_id, "quantity": 1})
-        body = client.post("/api/cart/items", headers=alice,
-                           json={"book_id": book_id, "quantity": 1}).json()
-
-        assert len(body["lines"]) == 1
-        assert body["lines"][0]["quantity"] == 2
-
-    def test_setting_a_quantity_to_zero_removes_the_line(
-            self, client, sign_in, shop):
-        alice = sign_in("alice")
-        book_id = shop["books"]["cheap"].id
-        client.post("/api/cart/items", headers=alice,
-                    json={"book_id": book_id, "quantity": 2})
-        body = client.patch("/api/cart/items/%d" % book_id, headers=alice,
-                            json={"quantity": 0}).json()
-        assert body["lines"] == []
-
-    def test_checkout_creates_an_order_and_a_payment(
-            self, client, sign_in, shop):
-        alice = sign_in("alice")
-        client.post("/api/cart/items", headers=alice,
-                    json={"book_id": shop["books"]["cheap"].id, "quantity": 2})
-
-        result = client.post("/api/checkout", headers=alice).json()
-        assert result["ok"]
-        assert Decimal(result["order"]["total"]) == Decimal("10.00")
-        assert len(result["order"]["payments"]) == 1
-
-    def test_an_empty_cart_cannot_be_checked_out(self, client, sign_in, shop):
-        body = client.post("/api/checkout", headers=sign_in("alice")).json()
-        assert not body["ok"]
-        assert "empty" in body["message"].lower()
-
-    def test_a_refusal_is_a_200_with_the_reason_not_an_error_status(
-            self, client, sign_in, shop):
-        """The client has to show the fine and the new balance, so a refusal
-        is a result rather than a failure."""
-        broke = sign_in("broke")
-        client.post("/api/cart/items", headers=broke,
-                    json={"book_id": shop["books"]["dear"].id, "quantity": 1})
-
-        response = client.post("/api/checkout", headers=broke)
-        assert response.status_code == 200
-        body = response.json()
-        assert not body["ok"]
-        assert Decimal(body["fine_applied"]) == Decimal("1.00")
-
-    def test_a_vip_is_charged_less_for_the_same_cart(
-            self, client, sign_in, shop):
-        book_id = shop["books"]["cheap"].id
-        for who, expected in (("alice", "5.00"), ("vip", "4.50")):
-            headers = sign_in(who)
-            client.post("/api/cart/items", headers=headers,
-                        json={"book_id": book_id, "quantity": 1})
-            body = client.post("/api/checkout", headers=headers).json()
-            assert Decimal(body["order"]["total"]) == Decimal(expected), who
-
-
-class TestOrderScoping:
-
-    def test_an_order_is_visible_to_its_owner(self, client, sign_in, shop):
-        alice = sign_in("alice")
-        client.post("/api/cart/items", headers=alice,
-                    json={"book_id": shop["books"]["cheap"].id, "quantity": 1})
-        order_id = client.post("/api/checkout", headers=alice).json()["order"]["id"]
-
-        assert client.get("/api/orders/%d" % order_id,
-                          headers=alice).status_code == 200
-
-    def test_another_customer_gets_404_not_403(self, client, sign_in, shop):
-        """403 would confirm the order exists, which is not theirs to know."""
-        alice = sign_in("alice")
-        client.post("/api/cart/items", headers=alice,
-                    json={"book_id": shop["books"]["cheap"].id, "quantity": 1})
-        order_id = client.post("/api/checkout", headers=alice).json()["order"]["id"]
-
-        assert client.get("/api/orders/%d" % order_id,
-                          headers=sign_in("vip")).status_code == 404
-
-    def test_the_order_list_cannot_be_pointed_at_someone_else(
-            self, client, sign_in, shop):
-        alice = sign_in("alice")
-        client.post("/api/cart/items", headers=alice,
-                    json={"book_id": shop["books"]["cheap"].id, "quantity": 1})
-        client.post("/api/checkout", headers=alice)
-
-        assert client.get("/api/orders", headers=sign_in("vip")).json() == []
-
-
 class TestPrivilege:
 
-    ADMIN_GETS = ("/api/admin/accounts", "/api/admin/finance",
+    ADMIN_GETS = ("/api/admin/accounts", "/api/admin/summary",
                   "/api/admin/analytics", "/api/admin/order-lists",
                   "/api/admin/taboo", "/api/admin/books")
 
@@ -292,14 +177,13 @@ class TestPrivilege:
         assert client.get(route, headers=sign_in("boss")).status_code == 200
 
     def test_a_vip_is_still_not_an_administrator(self, client, sign_in, shop):
-        assert client.get("/api/admin/finance",
+        assert client.get("/api/admin/summary",
                           headers=sign_in("vip")).status_code == 403
 
     def test_a_customer_cannot_add_a_book(self, client, sign_in, shop):
         response = client.post("/api/admin/books", headers=sign_in("alice"),
                                json={"title": "Sneaky", "author": "X",
-                                     "category": "literature", "year": 2000,
-                                     "price": "1.00", "stock": 1})
+                                     "category": "literature", "year": 2000})
         assert response.status_code == 403
 
 
@@ -310,15 +194,14 @@ class TestAdminCrud:
         boss = sign_in("boss")
         created = client.post("/api/admin/books", headers=boss,
                               json={"title": "Temporary", "author": "T",
-                                    "category": "test", "year": 2000,
-                                    "price": "5.00", "stock": 3})
+                                    "category": "test", "year": 2000})
         assert created.status_code == 201
         book_id = created.json()["id"]
 
         patched = client.patch("/api/admin/books/%d" % book_id, headers=boss,
-                               json={"price": "7.50"})
+                               json={"year": 2001})
         assert patched.status_code == 200
-        assert Decimal(patched.json()["price"]) == Decimal("7.50")
+        assert patched.json()["year"] == 2001
         assert patched.json()["title"] == "Temporary", \
             "a PATCH must not blank the fields it did not mention"
 
@@ -326,16 +209,15 @@ class TestAdminCrud:
                              headers=boss).status_code == 204
         assert client.get("/api/books/%d" % book_id).status_code == 404
 
-    def test_a_sold_book_cannot_be_deleted(self, client, sign_in, shop):
-        alice = sign_in("alice")
+    def test_a_reviewed_book_cannot_be_deleted(self, client, sign_in, shop):
         book_id = shop["books"]["cheap"].id
-        client.post("/api/cart/items", headers=alice,
-                    json={"book_id": book_id, "quantity": 1})
-        client.post("/api/checkout", headers=alice)
+        client.post("/api/books/%d/reviews" % book_id, headers=sign_in("alice"),
+                    json={"stars": 4, "comment": "Good."})
 
         response = client.delete("/api/admin/books/%d" % book_id,
                                  headers=sign_in("boss"))
-        assert response.status_code == 409, "deleting it would destroy receipts"
+        assert response.status_code == 409, "deleting it would destroy reviews"
+        assert "review" in response.json()["detail"]
 
     def test_taboo_words_round_trip(self, client, sign_in, shop):
         boss = sign_in("boss")
@@ -402,20 +284,20 @@ class TestReviewsOverHttp:
 
 class TestAssistant:
 
-    def test_a_visitor_is_refused_the_finances(self, client, shop):
-        body = client.post("/api/chat",
-                           json={"question": "What is the total revenue?"}).json()
+    def test_a_visitor_is_refused_the_insights(self, client, shop):
+        body = client.post("/api/chat", json={
+            "question": "How many resources are in the catalogue?"}).json()
         assert body["denied_for_role"]
 
     def test_the_super_user_gets_real_figures_not_an_error(
             self, client, sign_in, shop):
         """This failed silently once: the answer was labelled a success and
         read 'Something went wrong answering that'."""
-        body = client.post("/api/chat", headers=sign_in("boss"),
-                           json={"question": "What is the total revenue?"}).json()
+        body = client.post("/api/chat", headers=sign_in("boss"), json={
+            "question": "How many resources are in the catalogue?"}).json()
         assert not body["denied_for_role"]
         assert body["source"] == "store data"
-        assert "TOTAL REVENUE" in body["text"]
+        assert "CATALOGUE" in body["text"]
         assert "went wrong" not in body["text"]
 
     def test_a_shop_question_is_answered_from_the_files_and_cited(
@@ -531,7 +413,7 @@ class TestModerationCannotBeBypassed:
             json={"stars": 1, "comment": self._taboo(config)})
         assert response.status_code == 400
 
-        reviews = client.get("/api/books/%d/reviews" % book.id).json()
-        still = [r for r in reviews if r["id"] == review_id]
+        listed = client.get("/api/books/%d/reviews" % book.id).json()
+        still = [r for r in listed if r["id"] == review_id]
         assert still and still[0]["stars"] == 5, (
             "the rating from a refused edit must not survive")
