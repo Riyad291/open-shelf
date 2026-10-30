@@ -1,6 +1,6 @@
 # Open Shelf
 
-[![CI](https://github.com/USERNAME/open-shelf/actions/workflows/ci.yml/badge.svg)](https://github.com/USERNAME/open-shelf/actions/workflows/ci.yml)
+[![CI](https://github.com/Riyad291/open-shelf/actions/workflows/ci.yml/badge.svg)](https://github.com/Riyad291/open-shelf/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11%20%E2%80%93%203.12-blue)
 ![Tests](https://img.shields.io/badge/tests-149%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
