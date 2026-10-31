@@ -100,7 +100,7 @@ class ShelfScanner:
         # threshold the super-user changes at runtime is actually honoured.
         self.config = config if config is not None else rules.cfg
         self.models_dir = models_dir or os.path.join(
-            self.index.db.data_dir, "models"
+            self.index.catalogue.data_dir, "models"
         )
         self._yolo = None
         self._yolo_tried = False
