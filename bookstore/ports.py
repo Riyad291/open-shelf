@@ -48,6 +48,22 @@ class BookCatalogue(Protocol):
         """One book by id, or None."""
 
 
+class Browsable(Protocol):
+    """Browsing and keyword search over the catalogue."""
+
+    def all_books(self) -> Any: ...
+    def categories(self) -> Any: ...
+    def search(self, query: str, limit: int = 20) -> Any: ...
+
+
+class Recommends(Protocol):
+    """Three picks, either for one reader or like a set of books."""
+
+    def top_for(self, user: Any, count: int = 3) -> Any: ...
+    def similar_to(self, book_ids: Any, count: int = 3,
+                   exclude: Any = None) -> Any: ...
+
+
 class SiteReport(Protocol):
     """The two texts the assistant prints for the account questions.
 

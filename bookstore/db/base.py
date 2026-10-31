@@ -30,7 +30,7 @@ DEFAULT_URL = "postgresql+psycopg://postgres@/bookstore_dev?host=/tmp&port=5433"
 
 
 def database_url() -> str:
-    """Where the shop's records live.
+    """Where the site's records live.
 
     ``DATABASE_URL`` wins. It is the one knob that moves this between
     PostgreSQL, MySQL and SQLite:

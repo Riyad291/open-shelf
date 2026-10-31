@@ -62,7 +62,7 @@ def require_user(user: Optional[m.User] = Depends(current_user)) -> m.User:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             "This account is suspended: %s"
-            % (user.suspend_reason or "contact the shop."))
+            % (user.suspend_reason or "contact an administrator."))
     return user
 
 

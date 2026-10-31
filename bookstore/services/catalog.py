@@ -21,7 +21,7 @@ from typing import Dict, List, Optional, Tuple
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..catalog import TEXT_SAMPLE_CHARS, tokenize   # unchanged tokenizer
+from ..tokens import TEXT_SAMPLE_CHARS, tokenize
 from ..db import models as m
 
 

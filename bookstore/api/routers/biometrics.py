@@ -175,7 +175,7 @@ async def login_by_face(request: Request, frames: List[UploadFile] = File(...),
     if not service.trained:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
-            "No face has been enrolled in this shop yet. Sign in with a "
+            "No face has been enrolled on this site yet. Sign in with a "
             "password first, then enrol your face from your account page.")
 
     payloads = await _collect(frames)

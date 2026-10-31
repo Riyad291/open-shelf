@@ -32,12 +32,10 @@ from dataclasses import dataclass, field
 from typing import Callable, List, Optional
 
 from .db import models
-from .catalog import Catalog
 from .config import Config
 from .llm import LlmClient
-from .ports import CatalogueRules, SiteReport
+from .ports import Browsable, CatalogueRules, Recommends, SiteReport
 from .rag import Retriever
-from .recommend import Recommender
 from .datafiles import DataFiles
 
 SOURCE_STORE = "store data"
@@ -85,8 +83,8 @@ class ChatService:
         storage: DataFiles,
         config: Config,
         rules: CatalogueRules,
-        catalog: Catalog,
-        recommender: Recommender,
+        catalog: Browsable,
+        recommender: Recommends,
         finance: SiteReport,
         retriever: Optional[Retriever] = None,
         llm: Optional[LlmClient] = None,

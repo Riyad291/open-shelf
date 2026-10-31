@@ -10,9 +10,9 @@ Rules implemented
 *   A comment containing **more than** ``max_taboo_before_block`` hits (default
     3) is blocked entirely and earns its author one warning.
 *   Hits are counted as *occurrences*, not distinct words: saying the same
-    taboo word four times is four hits.  (The spec says "more than 3 taboo
-    words"; counting occurrences is the stricter and more defensible reading,
-    and it is the one a human moderator would use.)
+    taboo word four times is four hits. Counting occurrences rather than
+    distinct words is the stricter reading, and the one a human moderator
+    would use: repeating one slur is not milder than using three.
 """
 
 from __future__ import annotations

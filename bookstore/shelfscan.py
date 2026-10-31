@@ -1,28 +1,24 @@
-"""Shelf Scan -- the team's creative feature (feature 14).
+"""Shelf Scan: read a bookshelf from a photograph.
 
 The idea
 --------
-A customer photographs their own bookshelf, or a shelf in the shop, and uploads
-it.  The system segments the photo into individual books, matches each one
-against the catalogue's cover index, and then does three things no other part of
-the app does:
+Someone photographs their own bookshelf and uploads it. The photo is
+segmented into individual books, each one is matched against the cover
+index, and the result is used twice:
 
-1.  **Tells them what it recognised** -- which of the books on that shelf the
-    shop carries, with a confidence per book.
-2.  **Builds a reading profile from a photograph.**  A brand-new customer has no
-    browsing history, so requirement 2's personalised recommendations have
-    nothing to work from.  One photo of their shelf solves the cold-start
-    problem instantly: the books they already own are a far stronger taste
-    signal than a few clicks.
-3.  **Recommends what to read next** from that profile, and flags anything on the
-    shelf the shop would buy back.
+1.  **What was recognised** -- which books on that shelf are in the
+    catalogue, with a confidence per book.
+2.  **A reading profile, from one photograph.** This is the point. A new
+    visitor has no history, so personalised recommendations have nothing to
+    work from. The books someone already owns are a far stronger taste
+    signal than a few clicks, and a shelf hands over a dozen of them at
+    once. The cold-start problem, solved by a camera.
 
-Why this is a genuine addition rather than a reskin of picture search: picture
-search answers "which book is *this*?" for one image.  Shelf Scan answers "who
-is this reader?" from many books at once, and feeds the answer back into the
-recommender.  It reuses the detection stack the spec already demands (YOLO) and
-the cover descriptors from ``imagesearch``, so it adds capability without adding
-dependencies.
+Why this is not a reskin of picture search: picture search answers "which
+book is *this*?" for one image. Shelf Scan answers "who is this reader?"
+from many books at once and feeds that back into the recommender. It reuses
+the detector and the cover descriptors from ``imagesearch``, so it adds a
+capability without adding a dependency.
 
 Segmentation
 ------------
@@ -56,7 +52,8 @@ except ImportError:  # pragma: no cover
 
 from . import imagesearch
 from .imagesearch import ImageIndex
-from .recommend import Recommendation, Recommender
+from .ports import Recommends
+from .recommend import Recommendation
 from .ports import RatingRules
 
 #: Minimum width of a detected region, as a fraction of image width.  Narrower
@@ -87,73 +84,13 @@ class ShelfScanResult:
     matches: List[ShelfMatch] = field(default_factory=list)
     recommendations: List[Recommendation] = field(default_factory=list)
     profile_categories: List[Tuple[str, int]] = field(default_factory=list)
-    buyback_candidates: List[dict] = field(default_factory=list)
 
     @property
     def recognised(self) -> List[ShelfMatch]:
         return [m for m in self.matches if m.recognised]
 
-    def summary(self) -> str:
-        """Human-readable report, printed straight into the GUI."""
-        if not self.ok:
-            return self.message
-
-        lines = [
-            "SHELF SCAN",
-            "Segmentation: %s" % self.backend,
-            "Found %d book-shaped region(s); recognised %d from our catalogue."
-            % (self.regions_found, len(self.recognised)),
-            "",
-        ]
-
-        if self.recognised:
-            lines.append("Recognised on your shelf:")
-            for match in self.recognised:
-                book = match.book or {}
-                lines.append(
-                    "  %-36s %-22s  %.0f%% confident"
-                    % (str(book.get("title"))[:36], str(book.get("author"))[:22],
-                       match.similarity * 100)
-                )
-            lines.append("")
-        else:
-            lines.append(
-                "None of the books on this shelf are in our catalogue -- or the "
-                "photo is too small or too dim to match. Try a straight-on shot "
-                "in good light, filling the frame with one shelf."
-            )
-            lines.append("")
-
-        if self.profile_categories:
-            profile = ", ".join(
-                "%s x%d" % (category, count) for category, count in self.profile_categories
-            )
-            lines.append("Your shelf reads as: %s" % profile)
-            lines.append("")
-
-        if self.recommendations:
-            lines.append("Based on that shelf, you might like:")
-            for i, rec in enumerate(self.recommendations, 1):
-                lines.append(
-                    "  %d. %s by %s -- $%.2f"
-                    % (i, rec.book.get("title"), rec.book.get("author"),
-                       float(rec.book.get("price", 0.0)))
-                )
-                lines.append("     because %s" % rec.reason)
-            lines.append("")
-
-        if self.buyback_candidates:
-            lines.append(
-                "We would buy these back from you (they are on our to-order list):"
-            )
-            for book in self.buyback_candidates:
-                lines.append("  %s by %s" % (book.get("title"), book.get("author")))
-
-        return "\n".join(lines)
-
-
 class ShelfScanner:
-    def __init__(self, image_index: ImageIndex, recommender: Recommender,
+    def __init__(self, image_index: ImageIndex, recommender: Recommends,
                  rules: RatingRules, models_dir: Optional[str] = None,
                  config=None):
         self.index = image_index
@@ -487,11 +424,6 @@ class ShelfScanner:
                 book_ids, count=recommend_count, exclude=exclude
             )
 
-        buyback = []
-        for match in recognised:
-            if match.book and self.rules.list_status(match.book["book_id"]) == "to-order":
-                buyback.append(match.book)
-
         return ShelfScanResult(
             ok=True,
             message="Scanned %d region(s)." % len(matches),
@@ -500,7 +432,6 @@ class ShelfScanner:
             matches=matches,
             recommendations=recommendations,
             profile_categories=categories.most_common(),
-            buyback_candidates=buyback,
         )
 
     # -- annotated preview --------------------------------------------------

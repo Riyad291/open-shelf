@@ -29,10 +29,12 @@ from .routers import (
 
 
 DESCRIPTION = """
-An AI-enabled multimodal bookstore.
+A free library of technology books.
 
-Four privilege tiers decide almost every response: prices carry the VIP
-discount, recommendations are personalised, and the assistant answers more as
+Everything here is free to read, so the catalogue links out to wherever an
+author publishes rather than hosting files. Four privilege tiers decide much
+of what a response contains: recommendations are personalised, a trusted
+contributor's rating counts double, and the assistant answers more as
 privilege rises.
 
 Sign in at `/api/auth/login` for an access token and a refresh token. Send the
@@ -48,7 +50,7 @@ def create_app(database: Optional[str] = None,
     """Build the application.
 
     The optional arguments exist so tests can run a whole API against a
-    throwaway database and data directory rather than the live shop.
+    throwaway database and data directory rather than the live site.
     """
     ensure_dirs()
     runtime.configure(config_path=config_path, data_dir=data_dir)
@@ -108,7 +110,7 @@ def create_app(database: Optional[str] = None,
     def health():
         """What this process is actually serving.
 
-        Reports the shop it can see, not merely that the port is open: a
+        Reports the catalogue it can see, not merely that the port is open: a
         container that cannot read its own data is unhealthy even though it
         answers.
         """

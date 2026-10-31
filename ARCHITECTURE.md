@@ -87,6 +87,7 @@ them apart means each can be tested without the other.
 | `resources.py` | Browsing and searching the imported catalogue; counting click-throughs |
 | `catalog.py` | Browsing, facets and TF-IDF search over the demo shelf |
 | `recommend.py` | Three picks, from what a reader browsed and reviewed |
+| `image_catalogue.py` | The catalogue as the image code reads it (`ports.BookCatalogue`) |
 | `insights.py` | The administrator's figures, in SQL: outer joins, a running-total window, a partitioned rank |
 | `auth.py` | JWT access tokens, rotating refresh tokens, reuse detection |
 | `chat_adapter.py`, `image_catalogue.py` | Adapters for the assistant and image search (below) |
@@ -107,9 +108,18 @@ down.
 `chat.py` (intent routing and role tiering), `rag.py` (retrieval),
 `imagesearch.py`, `shelfscan.py` and `biometrics.py` were written against
 the original file-backed store. `bookstore/ports.py` writes down, as
-`typing.Protocol` classes, the five methods they need; the adapters in
-`services/` provide those over SQL. The recognition code crossed two storage
-changes without being edited.
+`typing.Protocol` classes, what they need from the rest of the app; the
+adapters in `services/` provide those over SQL. The recognition code crossed
+two storage changes without being edited.
+
+The file-backed implementations themselves are gone. They were kept for one
+release, so each move could be made and reviewed separately, and deleted once
+every caller had a database session: `storage.py` (a JSON record store with
+its own id counters and atomic writes), `catalog.Catalog` and
+`recommend.Recommender`. A class nothing constructs is not an abstraction, it
+is a second copy of the rules that can drift from the first. What survives is
+the part that was never about storage — `datafiles.py` for where the images
+are, `tokens.py` for the tokenizer both search paths share.
 
 Retrieval is TF-IDF over the help files in `data/kb`, with two extra rules for
 deciding whether a question is "local": the best passage must share a rare

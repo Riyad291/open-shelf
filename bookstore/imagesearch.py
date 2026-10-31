@@ -1,5 +1,4 @@
-"""Search books by picture (spec requirement 5: "search by ... pictures
-(cover page or internal figures)").
+"""Search the catalogue with a picture of a cover or an inside figure.
 
 How it works
 ------------

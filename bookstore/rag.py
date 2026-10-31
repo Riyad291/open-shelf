@@ -22,7 +22,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
-from .catalog import tokenize
+from .tokens import tokenize
 from .datafiles import DataFiles
 
 #: Chunks shorter than this are merged into the next one, so a bare heading

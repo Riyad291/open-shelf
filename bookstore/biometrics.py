@@ -1,8 +1,7 @@
-"""Face identification (face sign-in).
+"""Face recognition: eigenfaces, written here rather than imported.
 
-The spec asks for "a simple yolo-based procedure to train and classify human
-faces for face recognition, or a short audio classifier for user
-identification".  The face route is implemented here.
+A demonstration, not an authentication system. See "What this is not" at the
+bottom of this docstring before relying on it for anything.
 
 Face pipeline
 -------------
@@ -12,7 +11,7 @@ Face pipeline
 app works on a machine with no model files at all:
 
 1. **YOLO** via ``ultralytics`` -- used when a YOLO face weight file is present
-   (``data/models/yolov8n-face.pt``).  This is the spec's preferred route.
+   (``data/models/yolov8n-face.pt``). The most accurate of the four.
 2. **YuNet** -- OpenCV's bundled DNN face detector, when
    ``data/models/face_detection_yunet.onnx`` is present.
 3. **Haar cascade** -- classic OpenCV, when a cascade XML is available.

@@ -6,11 +6,11 @@ than three of them blocks the comment and earns a warning; more than two
 warnings suspends a member or demotes a trusted contributor.
 
 Trust is earned here too. A member whose reviews pass moderation often enough
-is promoted (``accounts.maybe_promote``), which is what VIP status became once
-there was nothing to buy.
+is promoted (``accounts.maybe_promote``), which is what the old paying-customer
+tier became once every book was free.
 
 The taboo screening itself is unchanged -- ``moderation.screen_comment`` is
-pure text in, text out, so it did not care that the storage underneath moved.
+pure text in, text out, so it did not care that the store underneath moved.
 """
 
 from __future__ import annotations

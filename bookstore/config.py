@@ -65,10 +65,10 @@ def ensure_dirs() -> None:
 DEFAULTS: Dict[str, Any] = {
     "trusted_review_threshold": 3,
     "warning_limit": 2,
-    # Requirement 4: a face is the login. Creating an account enrols one,
-    # and an enrolled account signs in with the camera rather than a
-    # password. The super-user keeps password access because somebody has
-    # to be able to get in before any face exists.
+    # Face sign-in. Creating an account enrols a face, and an enrolled
+    # account can sign in with the camera instead of a password. The
+    # administrator keeps password access because somebody has to be able
+    # to get in before any face exists.
     "require_face_enrolment": True,
     "require_face_login": True,
     "super_user_password_bootstrap": True,
@@ -152,7 +152,7 @@ class Config:
             self._values[key] = value
 
     def flag(self, name: str) -> bool:
-        """Read one of the spec-interpretation switches."""
+        """Read one of the policy switches (see ARCHITECTURE.md)."""
         block = self.get("policy") or {}
         if name in block:
             return bool(block[name])
