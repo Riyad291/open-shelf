@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 from .catalog import tokenize
-from .storage import Storage
+from .datafiles import DataFiles
 
 #: Chunks shorter than this are merged into the next one, so a bare heading
 #: never becomes its own retrieval unit.
@@ -124,8 +124,8 @@ def split_into_chunks(text: str) -> List[Tuple[str, str]]:
 class Retriever:
     """TF-IDF retrieval over the knowledge-base files."""
 
-    def __init__(self, storage: Storage):
-        self.db = storage
+    def __init__(self, files: DataFiles):
+        self.files = files
         self.chunks: List[Chunk] = []
         self._doc_freq: Counter = Counter()
         self._stamps: Dict[str, str] = {}
@@ -142,7 +142,7 @@ class Retriever:
             return ""
 
     def _needs_reload(self) -> bool:
-        files = self.db.kb_files()
+        files = self.files.kb_files()
         stamps = {p: self._stamp(p) for p in files}
         return stamps != self._stamps
 
@@ -151,7 +151,7 @@ class Retriever:
         if not force and not self._needs_reload():
             return len(self.chunks)
 
-        files = self.db.kb_files()
+        files = self.files.kb_files()
         self.chunks = []
         self._doc_freq = Counter()
         self._stamps = {p: self._stamp(p) for p in files}

@@ -18,7 +18,6 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Dict, List, Tuple
 
-from .storage import Storage
 
 _TOKEN = re.compile(r"[a-z0-9']+")
 
@@ -143,8 +142,8 @@ class SearchHit:
 class Catalog:
     """Browse and search over the book collection."""
 
-    def __init__(self, storage: Storage):
-        self.db = storage
+    def __init__(self, catalogue) -> None:
+        self.catalogue = catalogue
         self._index: Dict[str, Counter] = {}
         self._doc_freq: Counter = Counter()
         self._indexed_ids: set = set()
@@ -152,7 +151,7 @@ class Catalog:
     # -- browsing -----------------------------------------------------------
 
     def all_books(self) -> List[dict]:
-        return list(self.db.list_books())
+        return list(self.catalogue.list_books())
 
     def categories(self) -> List[Tuple[str, int]]:
         counts = Counter(
@@ -217,10 +216,10 @@ class Catalog:
         text_path = book.get("text_path") or ""
         if text_path:
             full = text_path if os.path.isabs(text_path) else os.path.join(
-                os.path.dirname(self.db.data_dir), text_path
+                os.path.dirname(self.catalogue.data_dir), text_path
             )
             if not os.path.exists(full):
-                full = os.path.join(self.db.book_text_dir, os.path.basename(text_path))
+                full = os.path.join(self.catalogue.book_text_dir, os.path.basename(text_path))
             if os.path.exists(full):
                 try:
                     with open(full, "r", encoding="utf-8", errors="ignore") as handle:

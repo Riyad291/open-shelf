@@ -107,7 +107,7 @@ def _scanner(session):
     """A scanner wired to the SQL catalogue through adapters.
 
     imagesearch and shelfscan are untouched by the storage migration: they
-    read books through the same five names Storage gave them, now served by
+    read books through the same five names DataFiles gave them, now served by
     ImageCatalogue.
     """
     from ...imagesearch import ImageIndex

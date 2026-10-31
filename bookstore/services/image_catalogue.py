@@ -3,14 +3,14 @@
 ``imagesearch.ImageIndex`` and ``shelfscan.ShelfScanner`` are the most
 distinctive code in this project, and neither of them cares where a book
 record comes from -- they want a title, a cover path and some figure paths.
-They were written against the file-backed ``Storage`` and used exactly seven
+They were written against the file-backed ``DataFiles`` and used exactly five
 things from it:
 
     data_dir  covers_dir  figures_dir  list_books()  get_book()
 
 Rather than rewrite two carefully tuned modules for a storage change they are
 indifferent to, this presents the relational catalogue through the same five
-names. The image code is untouched by the migration.
+names (``ports.BookCatalogue``). The image code is untouched by the migration.
 
 This is the adapter pattern, and the reason to reach for it here is that the
 alternative -- threading a Session through a descriptor-matching routine --
@@ -26,7 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from ..db import models as m
-from ..storage import Storage
+from ..datafiles import DataFiles
 
 
 def book_as_dict(book: m.Book) -> dict:
@@ -50,9 +50,9 @@ def book_as_dict(book: m.Book) -> dict:
 
 
 class ImageCatalogue:
-    """Storage's read surface, backed by SQL."""
+    """DataFiles's read surface, backed by SQL."""
 
-    def __init__(self, session: Session, files: Storage):
+    def __init__(self, session: Session, files: DataFiles):
         self._session = session
         self._files = files
 

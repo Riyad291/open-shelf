@@ -23,7 +23,7 @@ from typing import Dict, List, Optional
 
 from .db import models
 from .ports import RatingRules
-from .storage import Storage
+from .ports import BookCatalogue
 
 # Scoring weights, kept here so they are easy to tune in one place.
 W_CATEGORY = 3.0
@@ -41,8 +41,8 @@ class Recommendation:
 
 
 class Recommender:
-    def __init__(self, storage: Storage, rules: RatingRules):
-        self.db = storage
+    def __init__(self, catalogue: BookCatalogue, rules: RatingRules):
+        self.catalogue = catalogue
         self.rules = rules
 
     # -- taste profile ------------------------------------------------------
@@ -57,13 +57,13 @@ class Recommender:
         authors: Counter = Counter()
 
         for entry in user.get("browsing_history") or []:
-            book = self.db.get_book(entry.get("book_id", ""))
+            book = self.catalogue.get_book(entry.get("book_id", ""))
             if book:
                 categories[(book.get("category") or "").lower()] += 1
                 authors[book.get("author") or ""] += 1
 
         for entry in user.get("purchase_history") or []:
-            book = self.db.get_book(entry.get("book_id", ""))
+            book = self.catalogue.get_book(entry.get("book_id", ""))
             if book:
                 categories[(book.get("category") or "").lower()] += 3
                 authors[book.get("author") or ""] += 3
@@ -96,7 +96,7 @@ class Recommender:
         auth_total = sum(profile["authors"].values()) or 1
 
         scored: List[Recommendation] = []
-        for book in self.db.list_books():
+        for book in self.catalogue.list_books():
             book_id = book["book_id"]
             if book_id in purchased:
                 continue
@@ -137,7 +137,7 @@ class Recommender:
 
     def _store_wide(self, count: int, note: str = "") -> List[Recommendation]:
         """Most purchased and most browsed, for SU and visitors."""
-        books = self.db.list_books()
+        books = self.catalogue.list_books()
         if not books:
             return []
 
@@ -163,7 +163,7 @@ class Recommender:
         return scored[:count]
 
     def _popularity(self, book: dict) -> float:
-        books = self.db.list_books()
+        books = self.catalogue.list_books()
         max_purchases = max((int(b.get("purchase_count", 0)) for b in books), default=0) or 1
         return int(book.get("purchase_count", 0)) / max_purchases
 
@@ -195,7 +195,7 @@ class Recommender:
         categories: Counter = Counter()
         authors: Counter = Counter()
         for book_id in book_ids:
-            book = self.db.get_book(book_id)
+            book = self.catalogue.get_book(book_id)
             if book:
                 categories[(book.get("category") or "").lower()] += 1
                 authors[book.get("author") or ""] += 1
@@ -204,7 +204,7 @@ class Recommender:
         auth_total = sum(authors.values()) or 1
 
         scored: List[Recommendation] = []
-        for book in self.db.list_books():
+        for book in self.catalogue.list_books():
             if book["book_id"] in exclude:
                 continue
             if self.rules.list_status(book["book_id"]) == "no-order":

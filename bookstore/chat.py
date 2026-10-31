@@ -35,10 +35,10 @@ from .db import models
 from .catalog import Catalog
 from .config import Config
 from .llm import LlmClient
-from .ports import CatalogueRules, FinanceReport
+from .ports import CatalogueRules, SiteReport
 from .rag import Retriever
 from .recommend import Recommender
-from .storage import Storage
+from .datafiles import DataFiles
 
 SOURCE_STORE = "store data"
 SOURCE_RAG = "via RAG"
@@ -82,12 +82,12 @@ class Intent:
 class ChatService:
     def __init__(
         self,
-        storage: Storage,
+        storage: DataFiles,
         config: Config,
         rules: CatalogueRules,
         catalog: Catalog,
         recommender: Recommender,
-        finance: FinanceReport,
+        finance: SiteReport,
         retriever: Optional[Retriever] = None,
         llm: Optional[LlmClient] = None,
     ):
@@ -98,7 +98,7 @@ class ChatService:
         self.recommender = recommender
         self.retriever = retriever or Retriever(storage)
         self.llm = llm or LlmClient(config)
-        # Required, not built here: see ports.FinanceReport for what went
+        # Required, not built here: see ports.SiteReport for what went
         # wrong when this class made its own.
         self.finance = finance
         self.intents = self._build_intents()

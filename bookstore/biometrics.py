@@ -56,7 +56,7 @@ try:  # pragma: no cover
 except ImportError:  # pragma: no cover
     Image = None  # type: ignore
 
-from .storage import Storage
+from .datafiles import DataFiles
 
 # ---------------------------------------------------------------------------
 # Tunables
@@ -352,12 +352,12 @@ def normalise_face(gray, box: Optional[Tuple[int, int, int, int]] = None):
 class FaceRecogniser:
     """Eigenface gallery trained on the enrolled samples."""
 
-    def __init__(self, storage: Storage):
-        self.db = storage
-        self.models_dir = os.path.join(self.db.data_dir, MODELS_DIR_NAME)
+    def __init__(self, files: DataFiles):
+        self.files = files
+        self.models_dir = os.path.join(self.files.data_dir, MODELS_DIR_NAME)
         os.makedirs(self.models_dir, exist_ok=True)
         self.detector = FaceDetector(self.models_dir) if np is not None else None
-        self.model_path = os.path.join(self.db.data_dir, "biometrics", "face_model.json")
+        self.model_path = os.path.join(self.files.data_dir, "biometrics", "face_model.json")
         self._mean = None
         self._basis = None
         self._gallery: List[Tuple[str, "np.ndarray"]] = []
@@ -395,12 +395,12 @@ class FaceRecogniser:
     # -- enrollment ---------------------------------------------------------
 
     def user_dir(self, user_id: str) -> str:
-        path = os.path.join(self.db.faces_dir, user_id)
+        path = os.path.join(self.files.faces_dir, user_id)
         os.makedirs(path, exist_ok=True)
         return path
 
     def sample_paths(self, user_id: str) -> List[str]:
-        folder = os.path.join(self.db.faces_dir, user_id)
+        folder = os.path.join(self.files.faces_dir, user_id)
         if not os.path.isdir(folder):
             return []
         return sorted(
@@ -413,11 +413,11 @@ class FaceRecogniser:
         return len(self.sample_paths(user_id))
 
     def enrolled_users(self) -> List[str]:
-        if not os.path.isdir(self.db.faces_dir):
+        if not os.path.isdir(self.files.faces_dir):
             return []
         return sorted(
-            name for name in os.listdir(self.db.faces_dir)
-            if os.path.isdir(os.path.join(self.db.faces_dir, name))
+            name for name in os.listdir(self.files.faces_dir)
+            if os.path.isdir(os.path.join(self.files.faces_dir, name))
             and self.sample_count(name) > 0
         )
 

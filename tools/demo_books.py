@@ -209,7 +209,6 @@ def make_figure(path: str, title: str, category: str, index: int, seed: int) -> 
         points = []
         for i in range(60):
             x = 50 + i * ((width - 90) / 60.0)
-            phase = rng.uniform(0, 3.14)
             y = height - 60 - 110 * abs((i / 60.0) ** (1 + index) )
             points.append((x, y - 20 * ((i % 7) / 7.0)))
         draw.line(points, fill=(150, 40, 40), width=2)

@@ -40,7 +40,7 @@ except ImportError:  # pragma: no cover
     Image = None  # type: ignore
     ImageOps = None  # type: ignore
 
-from .storage import Storage
+from .ports import BookCatalogue
 
 GRID = 3
 HUE_BINS = 8
@@ -183,9 +183,9 @@ def similarity(a: Dict[str, Sequence[float]], b: Dict[str, Sequence[float]]) -> 
 class ImageIndex:
     """Descriptor cache over every cover and figure in the catalogue."""
 
-    def __init__(self, storage: Storage):
-        self.db = storage
-        self.cache_path = os.path.join(self.db.data_dir, "image_index.json")
+    def __init__(self, catalogue: BookCatalogue):
+        self.catalogue = catalogue
+        self.cache_path = os.path.join(self.catalogue.data_dir, "image_index.json")
         self._entries: Dict[str, dict] = {}
         self._load_cache()
 
@@ -224,7 +224,7 @@ class ImageIndex:
     def _image_records(self) -> List[Tuple[str, str, str]]:
         """Every (book_id, kind, absolute path) the index should cover."""
         records: List[Tuple[str, str, str]] = []
-        for book in self.db.list_books():
+        for book in self.catalogue.list_books():
             cover = self._resolve(book.get("cover_path"))
             if cover:
                 records.append((book["book_id"], "cover", cover))
@@ -239,12 +239,12 @@ class ImageIndex:
             return ""
         if os.path.isabs(path) and os.path.exists(path):
             return path
-        project_root = os.path.dirname(self.db.data_dir)
+        project_root = os.path.dirname(self.catalogue.data_dir)
         for candidate in (
             os.path.join(project_root, path),
-            os.path.join(self.db.data_dir, path),
-            os.path.join(self.db.covers_dir, os.path.basename(path)),
-            os.path.join(self.db.figures_dir, os.path.basename(path)),
+            os.path.join(self.catalogue.data_dir, path),
+            os.path.join(self.catalogue.covers_dir, os.path.basename(path)),
+            os.path.join(self.catalogue.figures_dir, os.path.basename(path)),
         ):
             if os.path.exists(candidate):
                 return candidate
@@ -307,7 +307,7 @@ class ImageIndex:
             score = similarity(query, entry.get("descriptor") or {})
             if score < min_similarity:
                 continue
-            book = self.db.get_book(entry.get("book_id", ""))
+            book = self.catalogue.get_book(entry.get("book_id", ""))
             if not book:
                 continue
             current = best_per_book.get(book["book_id"])
@@ -330,7 +330,7 @@ class ImageIndex:
         hits: List[ImageHit] = []
         for path, entry in self._entries.items():
             score = similarity(descriptor, entry.get("descriptor") or {})
-            book = self.db.get_book(entry.get("book_id", ""))
+            book = self.catalogue.get_book(entry.get("book_id", ""))
             if not book:
                 continue
             hits.append(

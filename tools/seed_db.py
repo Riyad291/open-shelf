@@ -26,7 +26,7 @@ from bookstore.config import Config, ensure_dirs                 # noqa: E402
 from bookstore.db import models as m                             # noqa: E402
 from bookstore.db.base import Base, configure, engine, session_factory  # noqa: E402
 from bookstore.services import accounts, reviews                  # noqa: E402
-from bookstore.storage import Storage                            # noqa: E402
+from bookstore.datafiles import DataFiles                            # noqa: E402
 
 from demo_books import BOOKS, download_gutenberg, make_cover, make_figure  # noqa: E402
 from demo_books import placeholder_text                                # noqa: E402
@@ -43,7 +43,7 @@ ACCOUNTS = [
 ]
 
 
-def seed_books(session, files: Storage, fetch_texts: bool) -> list:
+def seed_books(session, files: DataFiles, fetch_texts: bool) -> list:
     created = []
     # BOOKS still carries the old price and stock columns; they are unused.
     for title, author, category, year, _price, _stock, gid, description \
@@ -150,7 +150,7 @@ def main(argv=None) -> int:
         Base.metadata.drop_all(engine())
     Base.metadata.create_all(engine())
 
-    files = Storage()
+    files = DataFiles()
     config = Config()
     session = session_factory()()
 

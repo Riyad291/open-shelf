@@ -28,17 +28,37 @@ class CatalogueRules(RatingRules, Protocol):
         """The books to order more of, and the ones to stop ordering."""
 
 
-class FinanceReport(Protocol):
-    """The two texts the assistant prints for the money questions.
+class BookCatalogue(Protocol):
+    """A catalogue of books, as the image code reads it.
+
+    ``imagesearch`` and ``shelfscan`` need a list of books, one book by id,
+    and the three directories the images sit in. They do not need a
+    database, and saying so here is what lets the same two modules run
+    against files in a test and against SQL in the application.
+    """
+
+    data_dir: str
+    covers_dir: str
+    figures_dir: str
+
+    def list_books(self) -> Any:
+        """Every book, as plain dictionaries."""
+
+    def get_book(self, book_id: Any) -> Any:
+        """One book by id, or None."""
+
+
+class SiteReport(Protocol):
+    """The two texts the assistant prints for the account questions.
 
     Supplied by the caller. ``ChatService`` used to build its own from the
-    store it was given, which worked for the JSON store and failed silently
-    for the SQL one: the answer said "something went wrong" while being
-    reported as a success.
+    store it was given, which worked for the file-backed store and failed
+    silently for the SQL one: the answer said "something went wrong" while
+    being reported as a success.
     """
 
     def report_text(self) -> str:
-        """The administrator's report."""
+        """The administrator's catalogue report."""
 
     def user_statement(self, user: Any) -> str:
         """One account's own statement."""
