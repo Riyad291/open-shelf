@@ -1,4 +1,4 @@
-# Smart Bookstore -- Python dependencies
+# Open Shelf -- Python dependencies
 #
 #     pip install -r requirements.txt
 #
@@ -32,16 +32,16 @@ psycopg[binary]>=3.1        # the PostgreSQL driver
 python-jose[cryptography]>=3.3   # signs and verifies the access tokens
 
 # --- Images, recognition and search ----------------------------------------
-# numpy does the real work: the eigenface classifier, the MFCC speaker
-# recogniser and the image descriptor are all implemented here rather than
-# imported. OpenCV is used only for camera access and face *detection*,
-# because OpenCV 5 removed the contrib `face` module entirely.
+# numpy does the real work: the eigenface classifier and the image
+# descriptor are implemented here rather than imported. OpenCV is used only
+# for face *detection*, because OpenCV 5 removed the contrib `face` module
+# entirely.
 numpy>=1.24
 Pillow>=10.0
 opencv-python>=4.8
 
 # --- Tests -----------------------------------------------------------------
-# pytest is not needed to run the shop, only to check it.
+# pytest is not needed to run the site, only to check it.
 pytest>=8.0
 httpx>=0.27                 # what TestClient drives the API with
 
@@ -57,5 +57,5 @@ httpx>=0.27                 # what TestClient drives the API with
 # using only the standard library. Install Ollama from https://ollama.com:
 #     ollama serve
 #     ollama pull llama3.2
-# Without it, questions about the shop are still answered from local files;
+# Without it, questions about the site are still answered from local files;
 # only general questions are unavailable, and the app says so.
