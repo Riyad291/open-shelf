@@ -13,7 +13,7 @@ finds the row it wrote last time instead of writing another.
 
 This schema had a shop in it -- carts, orders, payments, balances. It was
 removed when the project became a free platform; ADR-002 records why, and
-the ``v1.0-coursework`` tag keeps the version with the checkout race in it.
+the ``v1.0-desktop`` tag keeps the version with the checkout race in it.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .base import Base
 
 
-# Roles. Kept as short strings matching the original specification's wording
+# Roles. Kept as short strings matching the original design's wording
 # so that stored data, the API and the rules all speak the same language.
 VISITOR = "VS"
 REGISTERED = "RC"
@@ -149,7 +149,7 @@ class RefreshToken(Base, TimestampMixin):
 
 
 class BiometricSample(Base, TimestampMixin):
-    """One enrolled face or voice sample (spec item 4).
+    """One enrolled face or voice sample (face sign-in).
 
     The sample itself stays on disk; only its path and kind are relational.
     Biometric data in a row that a report might accidentally select is a
@@ -205,7 +205,7 @@ class Book(Base, TimestampMixin):
 
 
 class BookFigure(Base):
-    """An internal illustration, indexed by picture search (spec item 5)."""
+    """An internal illustration, indexed by picture search."""
 
     __tablename__ = "book_figures"
 
@@ -228,7 +228,7 @@ class BookFigure(Base):
 class Review(Base, TimestampMixin):
     """A rating and comment.
 
-    ``user_id`` is nullable on purpose: specification item 7 says *any* user
+    ``user_id`` is nullable on purpose: Reviews and moderation: says *any* user
     can comment, including one who is not signed in.
     """
 
@@ -251,7 +251,7 @@ class Review(Base, TimestampMixin):
 
     trusted_reviewer: Mapped[bool] = mapped_column(Boolean, default=False,
                                                    nullable=False)
-    # A trusted contributor's rating counts double (spec item 7).
+    # A trusted contributor's rating counts double.
     weight: Mapped[Decimal] = mapped_column(Numeric(4, 2),
                                             default=Decimal("1.00"),
                                             nullable=False)

@@ -3,23 +3,17 @@
 **Status:** Accepted
 **Date:** 2026-10-12
 **Deciders:** Project owner
-**Supersedes:** the storage and client decisions implicit in `v1.0-coursework`
+**Supersedes:** the storage and client decisions implicit in `v1.0-desktop`
 
 ## Context
 
-The project was built to a university specification with two constraints that
-shaped its architecture:
+The first version was a Tkinter desktop application storing records in
+atomic JSON files -- no database, no web interface. It worked: 198 tests
+passing, every feature implemented. That version is preserved at the
+`v1.0-desktop` tag.
 
-- **Note 11:** "A local GUI system is fine; no need for a web-based version."
-- **Note 13:** records are to be kept in local text files, not a database.
-
-Both were met. `v1.0-coursework` is a Tkinter desktop application over atomic
-JSON files, passing 198 tests and 35/35 conformance checks. That tag is
-preserved and remains submittable.
-
-The audience has now changed. This project is going on a résumé for backend
-and full-stack roles, and the constraints that made it a good coursework
-submission make it a weak portfolio piece:
+Four things about it do not survive contact with its actual audience, which
+is someone deciding whether to read further:
 
 1. **A desktop GUI cannot be demonstrated from a link.** A recruiter will not
    clone a repository and install Tkinter. They will click a URL or move on.
@@ -65,10 +59,6 @@ submission make it a weak portfolio piece:
    miserable. It is one `SELECT ... FOR UPDATE` in a relational database,
    where correctness stops depending on how fast the loop runs.
 
-The project owner has confirmed the professor's position: local storage was a
-simplification offered to students, not a prohibition, and a better
-implementation is acceptable.
-
 ### Forces
 
 - The owner is a student, so **operational cost must be zero** and anyone must
@@ -89,7 +79,7 @@ implementation is acceptable.
    become the only interface.
 3. **Add the e-commerce entities** the current model lacks: cart, cart items,
    order, order items, payment.
-4. **Keep `v1.0-coursework` tagged** as the specification-compliant submission.
+4. **Keep `v1.0-desktop` tagged**, so the original design stays readable.
 
 ## Options considered
 
@@ -102,7 +92,7 @@ implementation is acceptable.
 | Scalability | Poor — whole-file rewrites, no partial reads |
 | Résumé value | **Negative.** Demonstrates avoiding the standard tool |
 
-**Pros:** no new dependency; keeps the specification satisfied.
+**Pros:** no new dependency; nothing else has to change.
 **Cons:** solves the concurrency bug badly; teaches nothing a reviewer values;
 leaves the cart and order model unmodelled or modelled poorly.
 
@@ -191,12 +181,13 @@ branch in the domain code.
 
 **Lost**
 
-- Specification conformance on notes 11 and 13. This is deliberate and
-  recorded; `v1.0-coursework` preserves the compliant version.
+- The two original constraints -- a local GUI, and records in text files
+  rather than a database. Both are deliberately given up here, and
+  `v1.0-desktop` preserves the version that kept them.
 - The Tkinter client, with its camera dialog and Shelf Scan view. The
   underlying biometric and shelf-scanning code is retained and exposed over
   HTTP instead — the logic is not being deleted, only its desktop window.
-- `verify_spec.py` checks for items 11 and 13 must be rewritten to state what
+- The checks covering those two constraints must be rewritten to state what
   is now true rather than quietly continuing to pass.
 
 **To revisit**
@@ -234,5 +225,4 @@ All complete as of 2026-10-12.
        replaced rather than patched. It asserted "no server component
        anywhere", which the API made false; `tools/verify_features.py` drives
        the real HTTP API and reports 10 of 10
-10. [x] Rewrite README and ARCHITECTURE for the new shape; add
-        `docs/FEATURE_PARITY.md` mapping every requirement to where it lives
+10. [x] Rewrite README and ARCHITECTURE for the new shape

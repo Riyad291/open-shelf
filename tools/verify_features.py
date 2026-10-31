@@ -1,15 +1,15 @@
-"""Check every feature the project specification asks for, against running code.
+"""Acceptance checks: every feature of the site, against running code.
 
     python tools/verify_features.py
 
-This is a conformance check, not a unit test. It builds a throwaway library in a
-temporary SQLite database, drives the real HTTP API the way a grader would,
-and prints the evidence beside each requirement. The exit status is 0 only
-when every item passes.
+Not a unit test. It builds a throwaway library in a temporary SQLite
+database, drives the real HTTP API the way a person would, and prints the
+evidence beside each feature. The exit status is 0 only when every one
+passes.
 
 It exists because a passing unit suite proves the code does what the tests
-say, not that the tests say what the specification says. Running this walks
-the specification itself.
+say, not that the features actually work end to end. A unit test can pass
+against a route nobody can reach.
 
 Nothing here touches the live site: a temporary database, a temporary data
 directory, and a temporary face gallery, all deleted on the way out.
@@ -36,13 +36,13 @@ def check(number: int, title: str, passed: bool, evidence: str) -> None:
 
 
 # --------------------------------------------------------------------------
-# A synthetic face, so item 4 can be checked without a camera or a person.
+# A synthetic face, so face sign-in can be checked without a camera or a person.
 # --------------------------------------------------------------------------
 
 
 def draw_face(path: str, *, skin, hair, shift=0, lift=0,
               head_w=96, head_h=128, eye_gap=43) -> str:
-    """A synthetic face, so item 4 can be checked without a camera.
+    """A synthetic face, so face sign-in can be checked without a camera.
 
     Two people must differ in *geometry*, not only in colour. The recogniser
     converts to grayscale and histogram-equalises before comparing, which is
@@ -77,7 +77,7 @@ def main() -> int:
     data_dir = os.path.join(tmp, "data")
     os.makedirs(os.path.join(data_dir, "kb"), exist_ok=True)
 
-    # A knowledge base, so item 9 has something to retrieve from.
+    # A knowledge base, so retrieval has something to retrieve from.
     with open(os.path.join(data_dir, "kb", "help.txt"), "w",
               encoding="utf-8") as handle:
         handle.write(
@@ -97,7 +97,7 @@ def main() -> int:
                      data_dir=data_dir, create_tables=True)
     client = TestClient(app)
 
-    # ---------------------------------------------------------------- seed
+    # ---------------------------------------------------------- seed
     session = session_factory()()
     config = app.state.config if hasattr(app.state, "config") else None
     from bookstore.api import runtime
@@ -136,7 +136,7 @@ def main() -> int:
     # Four ratings each way, which is "more than 3" -- the list threshold.
     # Carol is a trusted contributor, so her 5 weighs double and the weighted
     # average must sit above the plain one. Without a trusted rater every
-    # rating weighs the same, and item 7's weighting check would pass
+    # rating weighs the same, and the weighting check would pass
     # without demonstrating anything.
     for person, stars in zip([vip] + raters[:3], [5, 5, 3, 3]):
         reviews.submit(session, person, books["Loved Book"], stars,
@@ -156,8 +156,8 @@ def main() -> int:
         accounts.apply_warning(session, blocked, "warning %d" % index, config)
     session.commit()
 
-    # Alice earns trust: enough accepted reviews to be promoted (item 8).
-    # They also give her a reading history, so item 2 has a taste to use.
+    # Alice earns trust: enough accepted reviews to be promoted.
+    # They also give her a reading history, so recommendations has a taste to use.
     threshold = config.trusted_review_threshold
     for title in ["Pride and Prejudice", "On the Origin of Species",
                   "Frankenstein"][:threshold]:
@@ -178,7 +178,7 @@ def main() -> int:
                               token("boss", "bosspw"))
     t_member = token("mia", "miapw")
 
-    # ------------------------------------------------------------- item 1
+    # -------------------------------------------------- role tiering
     visitor = client.get("/api/admin/summary").status_code
     member = client.get("/api/admin/summary", headers=head(t_member)).status_code
     superuser = client.get("/api/admin/summary", headers=head(t_boss)).status_code
@@ -192,7 +192,7 @@ def main() -> int:
           "same route: visitor %d, member %d, administrator %d; roles %s"
           % (visitor, member, superuser, "/".join(sorted(roles))))
 
-    # ------------------------------------------------------------- item 2
+    # ----------------------------------------------- recommendations
     anon = client.get("/api/recommendations").json()
     mine = client.get("/api/recommendations", headers=head(t_alice)).json()
     check(2, "Top 3 recommendations, personalised",
@@ -201,7 +201,7 @@ def main() -> int:
           "visitor %r vs member %r"
           % (anon[0]["reason"][:28], mine[0]["reason"][:28]))
 
-    # ------------------------------------------------------------- item 3
+    # ---------------------------------------------- tiered assistant
     question = {"question": "Show me the catalogue stats."}
     denied = client.post("/api/chat", json=question).json()
     allowed = client.post("/api/chat", headers=head(t_boss),
@@ -223,7 +223,7 @@ def main() -> int:
           "visitor refused (%s); administrator got the report from %s"
           % (denied["source"], allowed["source"]))
 
-    # ------------------------------------------------------------- item 4
+    # -------------------------------------------------- face sign-in
     faces = os.path.join(tmp, "faces")
     os.makedirs(faces, exist_ok=True)
     owner = [draw_face(os.path.join(faces, "a%d.png" % i),
@@ -259,7 +259,7 @@ def main() -> int:
           "enrolled %d photos; owner signed in as %s; stranger refused (%d)"
           % (enrol.json().get("total_samples", 0), who, refused.status_code))
 
-    # ------------------------------------------------------------- item 5
+    # ------------------------------------------- browsing and search
     created = client.post("/api/admin/books", headers=head(t_boss),
                           json={"title": "Added By The Administrator",
                                 "author": "Staff", "category": "test",
@@ -279,7 +279,7 @@ def main() -> int:
              len(facets["authors"]), len(facets["decades"]), len(keyword),
              picture.status_code))
 
-    # ------------------------------------------------------------- item 6
+    # ---------------------------------------------- account standing
     people = client.get("/api/admin/accounts", headers=head(t_boss)).json()
     dave = next(a for a in people if a["username"] == "dave")
     reopened = client.post("/api/admin/accounts/%d/reopen" % dave["id"],
@@ -292,7 +292,7 @@ def main() -> int:
           "%d warnings suspended the account; the administrator reopened it "
           "and cleared them" % dave["warnings"])
 
-    # ------------------------------------------------------------- item 7
+    # ---------------------------------------- reviews and moderation
     lists = client.get("/api/admin/order-lists", headers=head(t_boss)).json()
     taboo = client.get("/api/admin/taboo", headers=head(t_boss)).json()
     warned = next(a for a in client.get("/api/admin/accounts",
@@ -301,7 +301,7 @@ def main() -> int:
     visitor_review = client.post("/api/books/%d/reviews" % books["Loved Book"].id,
                                  json={"stars": 4, "comment": "Nice."})
     loved = client.get("/api/books/%d" % books["Loved Book"].id).json()
-    # The real test of item 7: a trusted rating must count double, so the
+    # The real test: a trusted rating must count double, so the
     # weighted average has to differ from the plain one in the right
     # direction, not merely exist.
     weighting = (loved["rating"] is not None
@@ -316,7 +316,7 @@ def main() -> int:
           % (len(lists["to_order"]), len(lists["no_order"]), len(taboo),
              loved["rating"], loved["plain_rating"]))
 
-    # ------------------------------------------------------------- item 8
+    # ----------------------------------------------- earned standing
     alice_session = client.get("/api/auth/session",
                                headers=head(t_alice)).json()
     carol_session = client.get("/api/auth/session",
@@ -327,7 +327,7 @@ def main() -> int:
           "alice promoted after %d accepted reviews (%s)"
           % (alice_session["review_count"], alice_session["role_name"]))
 
-    # ------------------------------------------------------------- item 9
+    # ----------------------------------------------- local retrieval
     rag = client.post("/api/chat",
                       json={"question": "Where do the books come from?"}).json()
     off_topic = client.post(
@@ -338,7 +338,7 @@ def main() -> int:
           "local question -> %s citing %s; off-topic -> %s (not answered from files)"
           % (rag["source"], rag["citations"][0][:30], off_topic["source"]))
 
-    # ------------------------------------------------------------ item 10
+    # ------------------------------------------------------------ Shelf Scan
     scan = client.post("/api/shelf-scan",
                        files={"photo": ("shelf.png", open(owner[0], "rb"),
                                         "image/png")})
@@ -353,7 +353,7 @@ def main() -> int:
     shutil.rmtree(tmp, ignore_errors=True)
 
     passed = sum(1 for r in RESULTS if r[2])
-    print("\n%d of %d requirements verified" % (passed, len(RESULTS)))
+    print("\n%d of %d features verified" % (passed, len(RESULTS)))
     return 0 if passed == len(RESULTS) else 1
 
 

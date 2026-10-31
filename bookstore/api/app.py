@@ -1,7 +1,7 @@
 """The application.
 
 One rules engine, one database, one HTTP surface. The Tkinter client is gone;
-everything the specification asks for is served from here and rendered by the
+everything the feature list asks for is served from here and rendered by the
 browser client in ``web/``.
 """
 

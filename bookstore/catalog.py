@@ -1,4 +1,4 @@
-"""Catalogue: browsing and keyword search (spec requirement 5).
+"""Catalogue: browsing and keyword search.
 
 Browsing axes required by the spec: category, author, time (publication year).
 Keyword search covers title, author, category, description and the first slice

@@ -46,7 +46,7 @@ pytest>=8.0
 httpx>=0.27                 # what TestClient drives the API with
 
 # --- Optional: YOLO face detection and shelf segmentation -------------------
-# The specification asks for a "yolo-based procedure". With ultralytics
+# The feature list asks for a "yolo-based procedure". With ultralytics
 # installed and the weights fetched (python tools/fetch_models.py --yolo),
 # detection uses YOLO. Without it, detection falls back to OpenCV's YuNet DNN,
 # then a Haar cascade, then a centre crop -- and says which one it chose.

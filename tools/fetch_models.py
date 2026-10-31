@@ -78,7 +78,7 @@ def download(name: str, urls, description: str, minimum_bytes: int = 2000) -> bo
         try:
             print("  downloading     : %s" % name, end="", flush=True)
             request = urllib.request.Request(
-                url, headers={"User-Agent": "smart-bookstore-coursework/1.0"}
+                url, headers={"User-Agent": "smart-bookstore-the desktop version/1.0"}
             )
             with urllib.request.urlopen(request, timeout=120) as response:
                 payload = response.read()

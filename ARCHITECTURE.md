@@ -198,20 +198,20 @@ Before Open Shelf was free (ADR-002), checkout checked stock and then
 decremented it. Sixteen simultaneous checkouts of one copy: **9 of 16** paid
 without a row lock, 1 of 16 with `SELECT … FOR UPDATE`. `CHECK (stock >= 0)`
 does not catch it — in a lost update every session reads 1 and writes 0, so
-no row goes negative. That code is preserved at the `v1.0-coursework` tag.
+no row goes negative. That code is preserved at the `v1.0-desktop` tag.
 
 ---
 
 ## Resolved ambiguities
 
-The original specification contradicted itself in places. The two that still
-apply are flags under `spec_interpretation` in `config/settings.json`, so the
+The original feature list contradicted itself in places. The two that still
+apply are flags under `policy` in `config/settings.json`, so the
 reading taken is visible and reversible.
 
 | Flag | Default | Why |
 |---|---|---|
 | `order_lists_use_weighted_average` | `true` | The weighted average classifies; the unweighted count decides whether there are "more than 3 ratings". Mixing them puts the wrong book on the list. |
-| `visitors_may_review` | `true` | Item 7 says *any* user can comment. A visitor has no account to carry a warning, so a blocked visitor comment is refused and logged instead. |
+| `visitors_may_review` | `true` | Reviews and moderation says *any* user can comment. A visitor has no account to carry a warning, so a blocked visitor comment is refused and logged instead. |
 
 A third, that a demoted contributor is not promoted straight back, is now a
 column (`users.promotion_blocked`) rather than a flag.

@@ -87,7 +87,7 @@ def test_an_administrator_is_never_promoted(session, config, make_book,
     assert boss.role == m.SUPER_USER
 
 
-# --------------------------------------------- item 7: review weighting
+# ------------------------------------------------------ review weighting
 
 
 def test_a_trusted_contributor_rating_counts_double(
@@ -105,12 +105,12 @@ def test_a_trusted_contributor_rating_counts_double(
     assert summary["weighted_average"] == pytest.approx(3.667, abs=0.01)
 
 
-# --------------------------------------------- item 7: moderation
+# ------------------------------------------------------------- moderation
 
 
 def test_any_user_may_comment_including_a_visitor(
         session, config, make_book):
-    """Item 7 says *any* user can comment on any book."""
+    """Reviews and moderation says *any* user can comment on any book."""
     book = make_book()
     outcome = reviews.submit(session, None, book, 4, "Rather good.", config)
 
@@ -200,7 +200,7 @@ def test_a_demoted_contributor_is_not_promoted_again(
     assert person.role == m.REGISTERED
 
 
-# ------------------------------------------------- item 7: order lists
+# ------------------------------------------------------ recommendation lists
 
 
 def _rate(session, config, book, make_user, stars_list):

@@ -1,11 +1,11 @@
 """Configuration loading.
 
-All tunable business rules live in ``config/settings.json`` so that a grader or
-teammate can change a threshold without touching code.  ``Config`` is a thin
+All tunable business rules live in ``config/settings.json`` so that a
+threshold can be changed without touching code.  ``Config`` is a thin
 read/write wrapper around that file.
 
-The super-user can edit the taboo word list at runtime (spec requirement 9), so
-this object supports saving as well as loading.
+The administrator can edit the taboo word list at runtime, so this object
+supports saving as well as loading.
 """
 
 from __future__ import annotations
@@ -79,7 +79,7 @@ DEFAULTS: Dict[str, Any] = {
     "no_order_max_avg": 2.0,
     "to_order_min_avg": 4.0,
     "max_taboo_before_block": 3,
-    "spec_interpretation": {
+    "policy": {
         "order_lists_use_weighted_average": True,
         "visitors_may_review": True,
     },
@@ -118,10 +118,10 @@ class Config:
                     if isinstance(on_disk, dict):
                         # Merge the nested interpretation block rather than
                         # letting a partial file wipe the defaults.
-                        nested = dict(DEFAULTS["spec_interpretation"])
-                        nested.update(on_disk.get("spec_interpretation") or {})
+                        nested = dict(DEFAULTS["policy"])
+                        nested.update(on_disk.get("policy") or {})
                         values.update(on_disk)
-                        values["spec_interpretation"] = nested
+                        values["policy"] = nested
                 except (OSError, ValueError):
                     # A corrupt settings file should not stop the store from
                     # opening; fall back to defaults and carry on.
@@ -153,10 +153,10 @@ class Config:
 
     def flag(self, name: str) -> bool:
         """Read one of the spec-interpretation switches."""
-        block = self.get("spec_interpretation") or {}
+        block = self.get("policy") or {}
         if name in block:
             return bool(block[name])
-        return bool(DEFAULTS["spec_interpretation"].get(name, False))
+        return bool(DEFAULTS["policy"].get(name, False))
 
     # -- taboo words (edited by the SU at runtime) --------------------------
 

@@ -1,8 +1,7 @@
 """Accounts: registration, sign-in, suspension, promotion and the warning ladder.
 
-The privilege rules from the specification live here, reinterpreted for a
-free platform: standing is earned by writing reviews that pass moderation,
-and lost by writing ones that do not.
+Standing is earned by writing reviews that pass moderation, and lost by
+writing ones that do not.
 
 Password hashing lives here too, because accounts are the only thing that
 uses it.
@@ -122,7 +121,7 @@ def set_password(session: Session, user: m.User, password: str) -> None:
 
 
 def can_sign_in(user: m.User) -> Tuple[bool, str]:
-    """Specification item 6: a suspended account cannot sign in."""
+    """Account standing: a suspended account cannot sign in."""
     if user.suspended:
         return False, ("This account is suspended: %s. An administrator must "
                        "reopen it." % (user.suspend_reason or "contact us"))
@@ -144,7 +143,7 @@ def suspend(session: Session, user: m.User, reason: str) -> None:
 
 def reopen(session: Session, user: m.User, *,
            clear_warnings: bool = False) -> None:
-    """Specification item 6: only an administrator reopens an account.
+    """Account standing: only an administrator reopens an account.
 
     Warnings are kept unless the administrator clears them, so a reopened
     account that misbehaves once more is suspended again straight away.
@@ -164,7 +163,7 @@ def reopen(session: Session, user: m.User, *,
 
 def apply_warning(session: Session, user: m.User, reason: str,
                   config) -> Tuple[bool, bool]:
-    """Specification items 7 and 8.
+    """The warning ladder.
 
     More than ``warning_limit`` warnings suspends a member and demotes a
     trusted contributor back to member. Returns ``(suspended, demoted)``.

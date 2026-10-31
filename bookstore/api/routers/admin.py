@@ -1,6 +1,6 @@
 """Administration: catalogue, accounts, insights and moderation.
 
-Specification items 5, 6 and 7. Every route here depends on
+Feature items 5, 6 and 7. Every route here depends on
 ``require_super_user``, so privilege is declared rather than remembered.
 """
 
@@ -156,7 +156,7 @@ def delete_account(user_id: int, actor: m.User = Depends(require_super_user),
 @router.post("/accounts/{user_id}/reopen", response_model=S.AccountOut)
 def reopen(user_id: int, body: S.ReopenIn | None = None,
            session: Session = Depends(db_session)):
-    """Specification item 6: only an administrator reopens an account."""
+    """Account standing: only an administrator reopens an account."""
     user = session.get(m.User, user_id)
     if user is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such account.")
@@ -184,7 +184,7 @@ def suspend(user_id: int, body: S.SuspendIn,
 
 @router.get("/summary")
 def summary(session: Session = Depends(db_session)):
-    """Specification item 3: the administrator's report on the site."""
+    """The tiered assistant: the administrator's report on the site."""
     return insight_service.summary(session)
 
 
@@ -196,7 +196,7 @@ def analytics(session: Session = Depends(db_session)):
 
 @router.get("/order-lists", response_model=S.OrderListsOut)
 def order_lists(session: Session = Depends(db_session)):
-    """Specification item 7: the to-order and no-order lists."""
+    """Reviews and moderation: the to-order and no-order lists."""
     lists = review_service.order_lists(session, runtime.config())
     return S.OrderListsOut(**lists)
 

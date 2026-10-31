@@ -260,7 +260,7 @@ def download_gutenberg(book_id: int, out_path: str, timeout: int = 30) -> bool:
     for url in urls:
         try:
             request = urllib.request.Request(
-                url, headers={"User-Agent": "smart-bookstore-coursework/1.0"}
+                url, headers={"User-Agent": "smart-bookstore-the desktop version/1.0"}
             )
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 text = response.read().decode("utf-8", "ignore")

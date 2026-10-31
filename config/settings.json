@@ -1,5 +1,5 @@
 {
-  "_comment": "Every tunable business rule lives here. Change a value and restart the app; no code edits needed. The two 'spec_interpretation' flags are places the original spec was ambiguous -- see ARCHITECTURE.md section 'Resolved ambiguities'.",
+  "_comment": "Every tunable business rule lives here. Change a value and restart the app; no code edits needed. The two 'policy' flags are places the original spec was ambiguous -- see ARCHITECTURE.md section 'Resolved ambiguities'.",
   "trusted_review_threshold": 3,
   "warning_limit": 2,
   "require_face_enrolment": true,
@@ -12,7 +12,7 @@
   "no_order_max_avg": 2.0,
   "to_order_min_avg": 4.0,
   "max_taboo_before_block": 3,
-  "spec_interpretation": {
+  "policy": {
     "order_lists_use_weighted_average": true,
     "visitors_may_review": true
   },

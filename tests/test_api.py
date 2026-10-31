@@ -340,7 +340,7 @@ class TestBiometricRoutes:
 
 
 class TestModerationCannotBeBypassed:
-    """Specification item 7's warning ladder applies to every route that
+    """Reviews and moderation:'s warning ladder applies to every route that
     accepts a comment, not only the one that creates it.
 
     Before this was fixed, PATCH /api/reviews/{id} screened the text and

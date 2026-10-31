@@ -86,7 +86,7 @@ def _filters(category, author, decade):
 
 
 def facets(session: Session) -> dict:
-    """Specification item 5: browse by category, author and time period.
+    """Browsing and search: browse by category, author and time period.
 
     Three grouped queries, not a Python walk over every book.
     """

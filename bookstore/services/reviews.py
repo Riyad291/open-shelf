@@ -1,12 +1,12 @@
 """Ratings, comments, moderation and the two order lists.
 
-Specification item 7, as a free platform reads it: any user may comment; a
+Reviews and moderation, as a free platform reads it: any user may comment; a
 rating from a trusted contributor counts double; taboo words are masked; more
 than three of them blocks the comment and earns a warning; more than two
 warnings suspends a member or demotes a trusted contributor.
 
 Trust is earned here too. A member whose reviews pass moderation often enough
-is promoted (``accounts.maybe_promote``), which is what item 8 became once
+is promoted (``accounts.maybe_promote``), which is what VIP status became once
 there was nothing to buy.
 
 The taboo screening itself is unchanged -- ``moderation.screen_comment`` is
@@ -100,7 +100,7 @@ def screen_or_warn(session: Session, user: Optional[m.User], comment: str,
     warning's recorded reason.
 
     This exists because the edit endpoint used to screen a comment itself and
-    simply refuse a blocked one. That made the ladder in specification item 7
+    simply refuse a blocked one. That made the ladder in Reviews and moderation:
     avoidable: post one clean review, then edit it with taboo words as often
     as you like -- blocked every time, warned never. Measured before the fix:
     five blocked edits produced zero warnings, where a single blocked post
@@ -227,7 +227,7 @@ def submit(session: Session, user: Optional[m.User], book: m.Book,
 def _rating_columns():
     """The weighted and plain averages, as SQL.
 
-    Both are needed: the specification classifies by the weighted average but
+    Both are needed: the feature list classifies by the weighted average but
     counts ratings unweighted, and mixing the two is the kind of error that
     puts the wrong book on the no-order list.
     """
@@ -256,7 +256,7 @@ def rating_summary(session: Session, book_id: int) -> dict:
 
 
 def list_status(summary: dict, config) -> str:
-    """Specification item 7: more than three ratings puts a book on a list."""
+    """Reviews and moderation: more than three ratings puts a book on a list."""
     if summary["count"] <= config.min_ratings_for_list:
         return "normal"
 

@@ -1,4 +1,4 @@
-"""Specification item 2: three recommendations, personalised by privilege.
+"""Recommendations: three recommendations, personalised by privilege.
 
 A visitor and the administrator see what readers here rate most. A member or
 trusted contributor sees books chosen from what they have browsed and
@@ -6,7 +6,7 @@ reviewed, with a sentence saying why -- a recommendation nobody can explain
 is indistinguishable from an advert.
 
 A book on the not-recommended list is never recommended. That would be a
-straight contradiction between two of the specification's own rules.
+straight contradiction between two of the feature list's own rules.
 """
 
 from __future__ import annotations

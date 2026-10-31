@@ -1,4 +1,4 @@
-"""Specification item 10, the creative feature: Shelf Scan, in a browser.
+"""Shelf Scan, in a browser.
 
 Photograph a bookshelf. The scanner segments the photo into individual books,
 matches each region against the cover index, reads a taste profile from what

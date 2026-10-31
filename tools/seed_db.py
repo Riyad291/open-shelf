@@ -4,7 +4,7 @@
     python tools/seed_db.py --reset          # drop everything first
     python tools/seed_db.py --gutenberg      # also fetch the real book texts
 
-Every state the specification describes is visible straight away: a
+Every state the feature list describes is visible straight away: a
 suspended account, a trusted contributor, a title on each list, a masked and
 a blocked comment, and a member one review away from promotion.
 
@@ -101,7 +101,7 @@ def seed_activity(session, config, books: list, users: dict) -> None:
     by_title = {book.title: book for book in books}
 
     # Dave has collected more warnings than allowed and is suspended:
-    # specification item 6, visible on arrival.
+    # Account standing, visible on arrival.
     for index in range(config.warning_limit + 1):
         accounts.apply_warning(session, users["dave"],
                                "demo warning %d" % (index + 1), config)

@@ -4,7 +4,7 @@
 #     open http://localhost:8000/app/
 #
 # The first start creates the schema and seeds a demo library, so the catalogue
-# is populated and every state the specification describes is visible without
+# is populated and every state the feature list describes is visible without
 # typing anything.
 
 services:

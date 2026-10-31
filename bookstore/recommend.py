@@ -1,4 +1,4 @@
-"""Top-3 recommendations (spec requirement 2).
+"""Top-3 recommendations.
 
 Two code paths, exactly as the spec demands:
 

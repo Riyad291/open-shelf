@@ -1,4 +1,4 @@
-"""Face identification (spec requirement 4).
+"""Face identification (face sign-in).
 
 The spec asks for "a simple yolo-based procedure to train and classify human
 faces for face recognition, or a short audio classifier for user

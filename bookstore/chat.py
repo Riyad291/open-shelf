@@ -6,7 +6,7 @@ Two orthogonal jobs happen here.
    as the asker's privilege rises: ``VS < RC < VC < SU``.  Every answerable
    topic declares the minimum role that may see it, so the tiering is data, not
    a pile of if-statements.  A user below the bar gets a polite refusal that
-   names what tier would be needed -- which is how a grader can *see* the
+   names what tier would be needed -- which is how a reviewer can *see* the
    tiering working.
 
 2. **RAG routing (R13).**  "First check if the question is related to local

@@ -1,4 +1,4 @@
-"""Specification items 3, 9, 12 and 13: the role-tiered assistant.
+"""Feature items 3, 9, 12 and 13: the role-tiered assistant.
 
 The assistant itself is unchanged -- the same intent routing, the same
 privilege tiers, the same RAG-before-LLM dispatch, and the same rule that

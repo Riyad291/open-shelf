@@ -88,7 +88,7 @@ jobs:
           fi
 
   conformance:
-    name: Specification conformance
+    name: Acceptance checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -108,9 +108,9 @@ jobs:
           pip install -r requirements.txt
 
       # A passing suite proves the code does what the tests say. This proves
-      # the tests say what the specification says: it drives the real API and
+      # the tests say what the feature list says: it drives the real API and
       # prints the evidence beside each of the ten required features.
-      - name: Every specification feature
+      - name: Every feature, end to end
         run: python tools/verify_features.py
 
       # A quality gate, not a test: retrieval routing, tiering and picture

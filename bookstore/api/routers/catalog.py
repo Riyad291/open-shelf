@@ -1,6 +1,6 @@
 """The catalogue: browsing, search, covers, recommendations and reviews.
 
-Specification items 2, 5 and 7 are served from here.
+Feature items 2, 5 and 7 are served from here.
 """
 
 from __future__ import annotations
@@ -144,7 +144,7 @@ def search(q: str = Query(..., min_length=1), limit: int = Query(20, ge=1, le=10
 async def search_by_image(file: UploadFile = File(...),
                           user=Depends(current_user),
                           session: Session = Depends(db_session)):
-    """Specification item 5: hand it a picture and it finds the book."""
+    """Browsing and search: hand it a picture and it finds the book."""
     payload = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(payload) > MAX_UPLOAD_BYTES:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
@@ -206,7 +206,7 @@ async def search_by_image(file: UploadFile = File(...),
 @router.get("/api/recommendations", response_model=List[dict])
 def recommendations(user=Depends(current_user),
                     session: Session = Depends(db_session)):
-    """Specification item 2: three picks, personalised by privilege."""
+    """Recommendations: three picks, personalised by privilege."""
     config = runtime.config()
     picks = recommend_service.top_for(session, user, config,
                                       config.recommendation_count)
@@ -230,7 +230,7 @@ def book_reviews(book_id: int, session: Session = Depends(db_session)):
 @router.post("/api/books/{book_id}/reviews", response_model=S.ReviewResultOut)
 def post_review(book_id: int, body: S.ReviewIn, user=Depends(current_user),
                 session: Session = Depends(db_session)):
-    """Specification item 7: any user can comment on any book."""
+    """Reviews and moderation: any user can comment on any book."""
     book = session.get(m.Book, book_id)
     if book is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No such book.")
@@ -272,7 +272,7 @@ def edit_review(review_id: int, body: S.ReviewUpdateIn,
 
         # An edit is a new comment, so it costs what a new comment costs.
         # This endpoint used to screen the text itself and merely refuse a
-        # blocked one, which made the ladder in item 7 avoidable: post one
+        # blocked one, which made the warning ladder avoidable: post one
         # clean review, then edit it with taboo words forever.
         outcome = review_service.screen_or_warn(
             session, user, changes["comment"], config,

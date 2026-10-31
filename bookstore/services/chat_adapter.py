@@ -1,7 +1,7 @@
 """Facades so the assistant can read the SQL catalogue unchanged.
 
 ``chat.py`` is the intent routing, privilege tiering and RAG/LLM dispatch
-behind specification items 3, 9, 12 and 13. It was written against
+behind feature list items 3, 9, 12 and 13. It was written against
 dictionaries from the file-backed store, and it uses a small set of methods
 across five collaborators:
 
@@ -12,7 +12,7 @@ across five collaborators:
     insights    report_text  user_statement
 
 Rewriting it for a storage change it is indifferent to would risk behaviour
-that is already verified against the specification. These facades present
+that is already verified against the feature list. These facades present
 the same names over the relational schema instead (``bookstore/ports.py``
 writes the contract down).
 """

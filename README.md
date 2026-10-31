@@ -61,7 +61,7 @@ Measured on PostgreSQL with sixteen simultaneous checkouts:
 
 `CHECK (stock >= 0)` does *not* fix this, and it is worth knowing why: in a
 lost update every session reads 1 and writes 0, so no row goes negative and
-the constraint never fires. Preserved at the `v1.0-coursework` tag and in
+the constraint never fires. Preserved at the `v1.0-desktop` tag and in
 [ADR-001](docs/adr/ADR-001-postgresql-and-web-only.md).
 
 **Importing the same catalogue twice.** The importer runs on a schedule and
@@ -129,7 +129,7 @@ is transport; the browser client is a view.
 | **ML / CV** | numpy and OpenCV. Eigenfaces, TF-IDF and the image descriptor are implemented here, not imported |
 | **LLM** | Any OpenAI-compatible API (Groq by default), called over plain `urllib` — no vendor SDK |
 | **Testing** | pytest — 159 tests against both databases, plus an AI evaluation gate |
-| **CI/CD** | GitHub Actions — tests, migration drift check, conformance, lint, Docker |
+| **CI/CD** | GitHub Actions — tests, migration drift check, acceptance checks, AI evaluation, lint, Docker |
 
 Deeper: [ARCHITECTURE.md](ARCHITECTURE.md) ·
 [SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md) · [ADR-001](docs/adr/ADR-001-postgresql-and-web-only.md) ·
@@ -171,7 +171,7 @@ python tools/bench_search.py --database postgresql+psycopg://… \
 python tools/evaluate_ai.py
 python tools/evaluate_ai.py --without-veto    # what the filter contributes
 
-# the ten specification features, driven over the real HTTP API
+# every feature, driven over the real HTTP API
 python tools/verify_features.py
 ```
 

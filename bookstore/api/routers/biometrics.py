@@ -1,4 +1,4 @@
-"""Specification item 4: face login, in a browser.
+"""Face sign-in: face login, in a browser.
 
 The desktop client opened a camera with OpenCV. A browser cannot be handed a
 camera handle, so the flow inverts: the page captures frames with

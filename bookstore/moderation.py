@@ -1,4 +1,4 @@
-"""Taboo-word filtering (spec requirement 9).
+"""Taboo-word filtering.
 
 Rules implemented
 -----------------

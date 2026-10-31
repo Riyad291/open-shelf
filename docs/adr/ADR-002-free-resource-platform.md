@@ -34,14 +34,14 @@ Three forces push the same way:
 3. **Only legitimate open sources.** The first is the free-programming-books
    lists (CC BY 4.0), credited on every page that shows their data. Shadow
    libraries are out of scope permanently, whatever their catalogue size.
-4. **The ten specification features are kept, reinterpreted where the shop
-   made them meaningless** (table below).
+4. **All ten features are kept, reinterpreted where the shop made them
+   meaningless** (table below).
 5. **The engineering weight moves to ingestion:** idempotent, concurrent-safe
    imports with an audit trail, which is the problem a real catalogue has.
 6. **Commerce is not deleted in this change.** Removing it is a migration of
    its own (action item 5), so this one stays reviewable.
 
-### The ten features
+### The features
 
 | # | Feature | Status | As a free platform |
 |---|---|---|---|
@@ -109,7 +109,7 @@ on thousands of rows, not a demo shelf of ten.
 
 **Lost.** The checkout race, measured at 9 of 16 oversold without a row lock and
 1 of 16 with one, stops being live code. It is preserved in ADR-001 and at
-the `v1.0-coursework` tag.
+the `v1.0-desktop` tag.
 
 **To revisit.** Semantic search once the catalogue is large enough to need it;
 a second source once the first is solid.
@@ -121,7 +121,7 @@ a second source once the first is solid.
 - [x] 3. This record
 - [x] 4. Remove commerce, with its own migration
 - [x] 5. Rewrite `tools/verify_features.py` for the reinterpreted features
-- [x] 6. Rewrite README, ARCHITECTURE and FEATURE_PARITY
+- [x] 6. Rewrite README and ARCHITECTURE
 - [x] 7. A library page, so readers can actually see the catalogue
 - [x] 8. Full-text search, with a benchmark that reproduces the claim
 - [ ] 9. Link checker

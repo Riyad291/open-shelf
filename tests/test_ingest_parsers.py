@@ -2,7 +2,7 @@
 
 Every case below is an actual line (or a trimmed one) from
 EbookFoundation/free-programming-books. The format is a convention kept by
-hundreds of contributors, so the only trustworthy specification is the data.
+hundreds of contributors, so the only trustworthy feature list is the data.
 """
 
 from __future__ import annotations

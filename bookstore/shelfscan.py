@@ -1,4 +1,4 @@
-"""Shelf Scan -- the team's creative feature (spec requirement 14).
+"""Shelf Scan -- the team's creative feature (feature 14).
 
 The idea
 --------
