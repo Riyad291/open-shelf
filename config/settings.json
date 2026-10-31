@@ -19,7 +19,7 @@
   "rag_min_similarity": 0.15,
   "rag_top_k": 3,
   "llm_base_url": "https://api.groq.com/openai/v1",
-  "llm_model": "llama-3.3-70b-versatile",
+  "llm_model": "openai/gpt-oss-20b",
   "llm_timeout_seconds": 30,
   "recommendation_count": 3,
   "image_search_results": 8,

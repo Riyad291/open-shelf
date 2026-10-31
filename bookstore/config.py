@@ -88,7 +88,7 @@ DEFAULTS: Dict[str, Any] = {
     # The LLM endpoint. The API key is never here: it comes from the
     # LLM_API_KEY environment variable, because settings.json is committed.
     "llm_base_url": "https://api.groq.com/openai/v1",
-    "llm_model": "llama-3.3-70b-versatile",
+    "llm_model": "openai/gpt-oss-20b",
     "llm_timeout_seconds": 30,
     "recommendation_count": 3,
     "image_search_results": 8,

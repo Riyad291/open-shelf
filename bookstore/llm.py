@@ -10,7 +10,7 @@ key change, and all three come from the environment:
     LLM_API_KEY    required; without it the assistant still answers from the
                    local files and says the model is not configured
     LLM_BASE_URL   default https://api.groq.com/openai/v1
-    LLM_MODEL      default llama-3.3-70b-versatile
+    LLM_MODEL      default openai/gpt-oss-20b
 
 Groq is the default because its free tier needs no card, which matters for a
 deployed demo. The same code reaches OpenAI, OpenRouter, Together or
@@ -41,7 +41,12 @@ from .config import Config
 
 #: Groq's free tier. Any OpenAI-compatible endpoint can replace it.
 DEFAULT_BASE_URL = "https://api.groq.com/openai/v1"
-DEFAULT_MODEL = "llama-3.3-70b-versatile"
+#: Groq's Llama models moved to an Enterprise plan, so a free key is told
+#: the model "does not exist or you do not have access to it". The open
+#: GPT-OSS models are the ones a free key can reach. Any provider retires
+#: models eventually, which is why this is a setting and not a literal in
+#: the request: LLM_MODEL overrides it without a code change.
+DEFAULT_MODEL = "openai/gpt-oss-20b"
 
 #: One retry, for the two failures that are worth retrying: a rate limit and
 #: a server-side error. A bad key or a bad request will fail again
@@ -227,8 +232,10 @@ class LlmClient:
             message = ("%s rejected the API key. Check LLM_API_KEY."
                        % self.provider)
         elif exc.code == 404:
-            message = ("%s has no model called '%s'. Set LLM_MODEL to one it "
-                       "offers." % (self.provider, self.model))
+            message = ("%s has no model called '%s', or this key cannot "
+                       "reach it. Set LLM_MODEL to one the provider lists as "
+                       "available on your plan."
+                       % (self.provider, self.model))
         elif exc.code == 403:
             message = ("%s refused the request (HTTP 403). The key may lack "
                        "access to this model, or the request was blocked "
