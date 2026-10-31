@@ -15,7 +15,9 @@ services:
     name: open-shelf
     runtime: docker
     plan: free
-    region: oregon
+    # Same region as the Neon database (us-east-1). A web request that
+    # crosses the country to reach its database pays for it on every query.
+    region: virginia
     healthCheckPath: /api/health
 
     envVars:
