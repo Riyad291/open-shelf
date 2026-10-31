@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Riyad291/open-shelf/actions/workflows/ci.yml/badge.svg)](https://github.com/Riyad291/open-shelf/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11%20%E2%80%93%203.12-blue)
-![Tests](https://img.shields.io/badge/tests-159%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-176%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
 A free library of technology books. It imports **2,434 freely available
