@@ -32,8 +32,8 @@ class Recommendation:
 
 def _excluded_ids(session: Session, config) -> set:
     """Books on the not-recommended list, which must not be recommended."""
-    lists = review_service.order_lists(session, config)
-    return {entry["book_id"] for entry in lists["no_order"]}
+    lists = review_service.lists_by_rating(session, config)
+    return {entry["book_id"] for entry in lists["not_recommended"]}
 
 
 def _taste(session: Session, user: m.User) -> tuple:

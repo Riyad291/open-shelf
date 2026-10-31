@@ -20,11 +20,11 @@ class RatingRules(Protocol):
         """Count and averages for one book."""
 
     def list_status(self, book_id: Any) -> str:
-        """``"to-order"``, ``"no-order"`` or ``"normal"``."""
+        """``"recommended"``, ``"not-recommended"`` or ``"normal"``."""
 
 
 class CatalogueRules(RatingRules, Protocol):
-    def order_lists(self) -> Dict[str, Any]:
+    def lists_by_rating(self) -> Dict[str, Any]:
         """The books to order more of, and the ones to stop ordering."""
 
 

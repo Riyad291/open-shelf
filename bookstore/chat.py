@@ -136,15 +136,15 @@ class ChatService:
 
             # ---------------- trusted contributors and above ----------------
             Intent(
-                "order_lists", models.VIP,
-                # The lists were renamed for readers ("recommended", "not
-                # recommended"); the patterns have to follow, or the question
-                # people now ask is answered as if it were about something
-                # else -- or refused by the wrong intent.
-                [r"\bto[- ]order\b", r"\bno[- ]order\b", r"\border list\b",
-                 r"\brecommended list\b", r"\bnot[- ]recommended\b",
-                 r"\bbest rated\b", r"\btop rated\b", r"\bworst rated\b"],
-                ChatService._answer_order_lists,
+                "lists_by_rating", models.VIP,
+                # These match how a reader asks for the lists, not what
+                # the code calls them. "Order list" is gone from the site
+                # and from here: nothing is ordered, so nobody would ask
+                # for it, and a pattern nobody matches is dead weight.
+                [r"\brecommended list\b", r"\bnot[- ]recommended\b",
+                 r"\bbest rated\b", r"\btop rated\b", r"\bworst rated\b",
+                 r"\bhighest rated\b", r"\blowest rated\b"],
+                ChatService._answer_rating_lists,
                 "the recommended and not-recommended lists",
             ),
             Intent(
@@ -465,22 +465,22 @@ class ChatService:
                 )
         return "\n".join(lines)
 
-    def _answer_order_lists(self, user, question) -> str:
-        lists = self.rules.order_lists()
+    def _answer_rating_lists(self, user, question) -> str:
+        lists = self.rules.lists_by_rating()
         lines = []
-        if lists["to_order"]:
+        if lists["recommended"]:
             lines.append("RECOMMENDED (more than %d ratings, average above %.1f):"
-                         % (self.cfg.min_ratings_for_list, self.cfg.to_order_min_avg))
-            for row in lists["to_order"]:
+                         % (self.cfg.min_ratings_for_list, self.cfg.recommended_min_avg))
+            for row in lists["recommended"]:
                 lines.append("  %-34s %.2f stars from %d ratings"
                              % (str(row["book"]["title"])[:34], row["average"], row["count"]))
         else:
             lines.append("Nothing is on the recommended list yet.")
         lines.append("")
-        if lists["no_order"]:
+        if lists["not_recommended"]:
             lines.append("NOT RECOMMENDED (more than %d ratings, average below %.1f):"
-                         % (self.cfg.min_ratings_for_list, self.cfg.no_order_max_avg))
-            for row in lists["no_order"]:
+                         % (self.cfg.min_ratings_for_list, self.cfg.not_recommended_max_avg))
+            for row in lists["not_recommended"]:
                 lines.append("  %-34s %.2f stars from %d ratings"
                              % (str(row["book"]["title"])[:34], row["average"], row["count"]))
         else:

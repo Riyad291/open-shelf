@@ -220,7 +220,7 @@ reading taken is visible and reversible.
 
 | Flag | Default | Why |
 |---|---|---|
-| `order_lists_use_weighted_average` | `true` | The weighted average classifies; the unweighted count decides whether there are "more than 3 ratings". Mixing them puts the wrong book on the list. |
+| `rating_lists_use_weighted_average` | `true` | The weighted average classifies; the unweighted count decides whether there are "more than 3 ratings". Mixing them puts the wrong book on the list. |
 | `visitors_may_review` | `true` | Reviews and moderation says *any* user can comment. A visitor has no account to carry a warning, so a blocked visitor comment is refused and logged instead. |
 
 A third, that a demoted contributor is not promoted straight back, is now a

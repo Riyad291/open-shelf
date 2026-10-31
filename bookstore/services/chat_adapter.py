@@ -6,7 +6,7 @@ dictionaries from the file-backed store, and it uses a small set of methods
 across five collaborators:
 
     db          get_book  get_user  list_users  reviews
-    rules       order_lists  rating_summary
+    rules       lists_by_rating  rating_summary
     catalog     all_books  categories  search
     recommender top_for
     insights    report_text  user_statement
@@ -120,8 +120,8 @@ class RulesFacade:
         return _Summary(data["count"], data["weighted_average"],
                         data["plain_average"])
 
-    def order_lists(self) -> dict:
-        lists = review_service.order_lists(self._session, self._config)
+    def lists_by_rating(self) -> dict:
+        lists = review_service.lists_by_rating(self._session, self._config)
 
         def shape(entries):
             out = []
@@ -136,8 +136,8 @@ class RulesFacade:
                 })
             return out
 
-        return {"no_order": shape(lists["no_order"]),
-                "to_order": shape(lists["to_order"])}
+        return {"not_recommended": shape(lists["not_recommended"]),
+                "recommended": shape(lists["recommended"])}
 
 
 class CatalogFacade:

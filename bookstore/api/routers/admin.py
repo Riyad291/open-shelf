@@ -194,11 +194,11 @@ def analytics(session: Session = Depends(db_session)):
     return insight_service.analytics(session)
 
 
-@router.get("/order-lists", response_model=S.OrderListsOut)
-def order_lists(session: Session = Depends(db_session)):
-    """Reviews and moderation: the to-order and no-order lists."""
-    lists = review_service.order_lists(session, runtime.config())
-    return S.OrderListsOut(**lists)
+@router.get("/rating-lists", response_model=S.RatingListsOut)
+def lists_by_rating(session: Session = Depends(db_session)):
+    """Reviews and moderation: the recommended and not-recommended lists."""
+    lists = review_service.lists_by_rating(session, runtime.config())
+    return S.RatingListsOut(**lists)
 
 
 # ------------------------------------------------- taboo words (full CRUD)

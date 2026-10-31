@@ -10,11 +10,11 @@
   "trusted_weight": 2.0,
   "normal_weight": 1.0,
   "min_ratings_for_list": 3,
-  "no_order_max_avg": 2.0,
-  "to_order_min_avg": 4.0,
+  "not_recommended_max_avg": 2.0,
+  "recommended_min_avg": 4.0,
   "max_taboo_before_block": 3,
   "policy": {
-    "order_lists_use_weighted_average": true,
+    "rating_lists_use_weighted_average": true,
     "visitors_may_review": true
   },
   "rag_min_similarity": 0.15,

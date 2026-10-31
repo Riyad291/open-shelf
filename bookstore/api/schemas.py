@@ -281,7 +281,7 @@ class TabooIn(BaseModel):
     word: str = Field(..., min_length=1, max_length=64)
 
 
-class OrderListEntryOut(BaseModel):
+class RatedBookOut(BaseModel):
     book_id: int
     title: str
     author: str
@@ -291,9 +291,9 @@ class OrderListEntryOut(BaseModel):
     weighted_average: float
 
 
-class OrderListsOut(BaseModel):
-    to_order: List[OrderListEntryOut]
-    no_order: List[OrderListEntryOut]
+class RatingListsOut(BaseModel):
+    recommended: List[RatedBookOut]
+    not_recommended: List[RatedBookOut]
 
 
 class HealthOut(BaseModel):

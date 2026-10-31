@@ -153,8 +153,8 @@ const SPINE_COLOURS = {
 function spine(book, rank) {
   const colour = SPINE_COLOURS[book.category] || "#6b7280";
   const height = 150 + ((book.title.length * 7) % 90);
-  const badge = book.list_status === "no-order" ? "no-order"
-    : book.list_status === "to-order" ? "to-order" : "";
+  const badge = book.list_status === "not-recommended" ? "not-recommended"
+    : book.list_status === "recommended" ? "recommended" : "";
   return `
     <button class="spine" role="listitem" data-book="${book.id}"
             style="--spine:${colour};--h:${height}px"
@@ -354,8 +354,8 @@ function bookSheet(book) {
           ? `<span class="stars">${stars(book.rating)}</span> ${book.rating} from ${book.rating_count} rating${book.rating_count === 1 ? "" : "s"}`
           : "No ratings yet."}</p>
         ${book.list_status !== "normal"
-          ? `<p class="note ${book.list_status === "no-order" ? "bad" : "good"}">
-               This title is on the <b>${book.list_status === "no-order"
+          ? `<p class="note ${book.list_status === "not-recommended" ? "bad" : "good"}">
+               This title is on the <b>${book.list_status === "not-recommended"
                  ? "not-recommended" : "recommended"}</b> list.</p>` : ""}
         <p class="serif">${esc(book.description)}</p>
 
@@ -817,15 +817,15 @@ const adminPanels = {
         ${sqlTable(r[key], "Nothing to report yet.")}`).join("");
   },
 
-  async orders() {
-    const lists = await api("/admin/order-lists");
+  async ratingLists() {
+    const lists = await api("/admin/rating-lists");
     return `
       <h2>Recommended</h2>
       <p class="query-note">More than 3 ratings, weighted average above 4.</p>
-      ${sqlTable(lists.to_order, "Nothing qualifies yet.")}
+      ${sqlTable(lists.recommended, "Nothing qualifies yet.")}
       <h2>Not recommended</h2>
       <p class="query-note">More than 3 ratings, weighted average below 2.</p>
-      ${sqlTable(lists.no_order, "Nothing qualifies yet.")}`;
+      ${sqlTable(lists.not_recommended, "Nothing qualifies yet.")}`;
   },
 
   async accounts() {

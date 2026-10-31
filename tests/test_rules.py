@@ -208,22 +208,22 @@ def _rate(session, config, book, make_user, stars_list):
         reviews.submit(session, make_user(), book, stars, "A view.", config)
 
 
-def test_more_than_three_low_ratings_make_a_no_order_book(
+def test_more_than_three_low_ratings_make_a_not_recommended_book(
         session, config, make_book, make_user):
     book = make_book(title="Disliked")
     _rate(session, config, book, make_user, [1, 1, 2, 1])
 
-    lists = reviews.order_lists(session, config)
-    assert [entry["title"] for entry in lists["no_order"]] == ["Disliked"]
+    lists = reviews.lists_by_rating(session, config)
+    assert [entry["title"] for entry in lists["not_recommended"]] == ["Disliked"]
 
 
-def test_more_than_three_high_ratings_make_a_to_order_book(
+def test_more_than_three_high_ratings_make_a_recommended_book(
         session, config, make_book, make_user):
     book = make_book(title="Adored")
     _rate(session, config, book, make_user, [5, 5, 4, 5])
 
-    lists = reviews.order_lists(session, config)
-    assert [entry["title"] for entry in lists["to_order"]] == ["Adored"]
+    lists = reviews.lists_by_rating(session, config)
+    assert [entry["title"] for entry in lists["recommended"]] == ["Adored"]
 
 
 def test_three_ratings_are_not_enough_for_either_list(
@@ -231,6 +231,6 @@ def test_three_ratings_are_not_enough_for_either_list(
     book = make_book(title="Barely Rated")
     _rate(session, config, book, make_user, [1, 1, 1])
 
-    lists = reviews.order_lists(session, config)
-    assert lists["no_order"] == []
-    assert lists["to_order"] == []
+    lists = reviews.lists_by_rating(session, config)
+    assert lists["not_recommended"] == []
+    assert lists["recommended"] == []

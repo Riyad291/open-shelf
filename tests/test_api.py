@@ -161,7 +161,7 @@ class TestAuthentication:
 class TestPrivilege:
 
     ADMIN_GETS = ("/api/admin/accounts", "/api/admin/summary",
-                  "/api/admin/analytics", "/api/admin/order-lists",
+                  "/api/admin/analytics", "/api/admin/rating-lists",
                   "/api/admin/taboo", "/api/admin/books")
 
     @pytest.mark.parametrize("route", ADMIN_GETS)

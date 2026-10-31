@@ -30,8 +30,9 @@ RESULTS = []
 
 
 def check(number: int, title: str, passed: bool, evidence: str) -> None:
+    """Record one feature's result and print it as it is measured."""
     RESULTS.append((number, title, passed, evidence))
-    print("%-4s Item %-2d  %-46s %s"
+    print("%-4s %2d.  %-46s %s"
           % ("PASS" if passed else "FAIL", number, title, evidence))
 
 
@@ -293,7 +294,7 @@ def main() -> int:
           "and cleared them" % dave["warnings"])
 
     # ---------------------------------------- reviews and moderation
-    lists = client.get("/api/admin/order-lists", headers=head(t_boss)).json()
+    lists = client.get("/api/admin/rating-lists", headers=head(t_boss)).json()
     taboo = client.get("/api/admin/taboo", headers=head(t_boss)).json()
     warned = next(a for a in client.get("/api/admin/accounts",
                                         headers=head(t_boss)).json()
@@ -308,12 +309,12 @@ def main() -> int:
                  and loved["plain_rating"] is not None
                  and loved["rating"] > loved["plain_rating"] + 0.1)
     check(7, "Reviews, trusted weighting, lists, taboo words, warnings",
-          lists["to_order"] and lists["no_order"] and taboo
+          lists["recommended"] and lists["not_recommended"] and taboo
           and warned["warnings"] > 0 and visitor_review.status_code == 200
           and weighting,
           "recommended %d, not %d; %d taboo words; warning issued; "
           "trusted weigh double: weighted %.2f > plain %.2f; visitors may comment"
-          % (len(lists["to_order"]), len(lists["no_order"]), len(taboo),
+          % (len(lists["recommended"]), len(lists["not_recommended"]), len(taboo),
              loved["rating"], loved["plain_rating"]))
 
     # ----------------------------------------------- earned standing
@@ -342,7 +343,7 @@ def main() -> int:
     scan = client.post("/api/shelf-scan",
                        files={"photo": ("shelf.png", open(owner[0], "rb"),
                                         "image/png")})
-    check(10, "Creative feature (Shelf Scan)",
+    check(10, "Shelf Scan: read a bookshelf from a photograph",
           scan.status_code in (200, 503),
           "POST /api/shelf-scan answered %d (%s)"
           % (scan.status_code,

@@ -193,6 +193,21 @@ main { max-width: 1180px; margin: 0 auto; padding: 36px 24px 90px; }
               inset 5px 0 7px -6px rgba(255,255,255,.22);
 }
 .spine:hover, .spine:focus-visible { transform: translateY(-11px); }
+
+/* A book the site's own readers have placed on the recommended or the
+   not-recommended list carries a dot at the foot of its spine. The markup
+   was already there and had no rule, so the signal was computed on the
+   server, sent to the browser and then drawn as nothing. A dot rather than
+   a colour change because the spine colour already means the category, and
+   one channel should carry one meaning. */
+.spine-dot {
+  width: 7px; height: 7px;
+  margin-bottom: 7px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, .28);
+}
+.spine-dot.recommended { background: var(--good); }
+.spine-dot.not-recommended { background: var(--bad); }
 .spine.wide { width: 62px; }
 .spine.tall { }
 

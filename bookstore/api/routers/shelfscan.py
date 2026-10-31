@@ -88,7 +88,7 @@ class _RecommenderShim:
 
 
 class _RulesShim:
-    """Shelf Scan flags a recognised book that is on the to-order list."""
+    """Shelf Scan flags a recognised book that is on the recommended list."""
 
     def __init__(self, session, config):
         self._session = session

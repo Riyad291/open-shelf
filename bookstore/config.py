@@ -82,11 +82,11 @@ DEFAULTS: Dict[str, Any] = {
     "trusted_weight": 2.0,
     "normal_weight": 1.0,
     "min_ratings_for_list": 3,
-    "no_order_max_avg": 2.0,
-    "to_order_min_avg": 4.0,
+    "not_recommended_max_avg": 2.0,
+    "recommended_min_avg": 4.0,
     "max_taboo_before_block": 3,
     "policy": {
-        "order_lists_use_weighted_average": True,
+        "rating_lists_use_weighted_average": True,
         "visitors_may_review": True,
     },
     "rag_min_similarity": 0.15,
@@ -220,12 +220,12 @@ class Config:
         return int(self.get("min_ratings_for_list"))
 
     @property
-    def no_order_max_avg(self) -> float:
-        return float(self.get("no_order_max_avg"))
+    def not_recommended_max_avg(self) -> float:
+        return float(self.get("not_recommended_max_avg"))
 
     @property
-    def to_order_min_avg(self) -> float:
-        return float(self.get("to_order_min_avg"))
+    def recommended_min_avg(self) -> float:
+        return float(self.get("recommended_min_avg"))
 
     @property
     def max_taboo_before_block(self) -> int:

@@ -162,12 +162,12 @@ class TestTheListsAgreeWithTheRatings:
 
     def test_the_loved_book_is_recommended(self, session, busy_library,
                                            config):
-        lists = reviews.order_lists(session, config)
-        assert "Book 4" in [e["title"] for e in lists["to_order"]]
+        lists = reviews.lists_by_rating(session, config)
+        assert "Book 4" in [e["title"] for e in lists["recommended"]]
 
     def test_the_disliked_book_is_not(self, session, busy_library, config):
-        lists = reviews.order_lists(session, config)
-        assert "Book 5" in [e["title"] for e in lists["no_order"]]
+        lists = reviews.lists_by_rating(session, config)
+        assert "Book 5" in [e["title"] for e in lists["not_recommended"]]
 
 
 class TestTheCatalogueSurvivesBeingReadBack:

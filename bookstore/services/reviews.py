@@ -1,4 +1,4 @@
-"""Ratings, comments, moderation and the two order lists.
+"""Ratings, comments, moderation and the two rating lists.
 
 Reviews and moderation, as a free platform reads it: any user may comment; a
 rating from a trusted contributor counts double; taboo words are masked; more
@@ -229,7 +229,7 @@ def _rating_columns():
 
     Both are needed: the feature list classifies by the weighted average but
     counts ratings unweighted, and mixing the two is the kind of error that
-    puts the wrong book on the no-order list.
+    puts the wrong book on the not-recommended list.
     """
     return (
         func.count(m.Review.id).label("rating_count"),
@@ -261,18 +261,18 @@ def list_status(summary: dict, config) -> str:
         return "normal"
 
     average = (summary["weighted_average"]
-               if config.flag("order_lists_use_weighted_average")
+               if config.flag("rating_lists_use_weighted_average")
                else summary["plain_average"])
     if average is None:
         return "normal"
-    if average < config.no_order_max_avg:
-        return "no-order"
-    if average > config.to_order_min_avg:
-        return "to-order"
+    if average < config.not_recommended_max_avg:
+        return "not-recommended"
+    if average > config.recommended_min_avg:
+        return "recommended"
     return "normal"
 
 
-def order_lists(session: Session, config) -> dict:
+def lists_by_rating(session: Session, config) -> dict:
     """Both lists, in two queries rather than one per book.
 
     The naive version asks for every book's rating summary in a loop. With a
@@ -288,7 +288,7 @@ def order_lists(session: Session, config) -> dict:
         .having(func.count(m.Review.id) > config.min_ratings_for_list)
     ).all()
 
-    no_order, to_order = [], []
+    not_recommended, recommended = [], []
     for row in rows:
         summary = {
             "count": int(row.rating_count),
@@ -300,14 +300,14 @@ def order_lists(session: Session, config) -> dict:
             "category": row.category, **summary,
         }
         status = list_status(summary, config)
-        if status == "no-order":
-            no_order.append(entry)
-        elif status == "to-order":
-            to_order.append(entry)
+        if status == "not-recommended":
+            not_recommended.append(entry)
+        elif status == "recommended":
+            recommended.append(entry)
 
-    no_order.sort(key=lambda e: e["weighted_average"])
-    to_order.sort(key=lambda e: -e["weighted_average"])
-    return {"no_order": no_order, "to_order": to_order}
+    not_recommended.sort(key=lambda e: e["weighted_average"])
+    recommended.sort(key=lambda e: -e["weighted_average"])
+    return {"not_recommended": not_recommended, "recommended": recommended}
 
 
 def for_book(session: Session, book_id: int,
