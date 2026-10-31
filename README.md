@@ -2,12 +2,12 @@
 
 [![CI](https://github.com/Riyad291/open-shelf/actions/workflows/ci.yml/badge.svg)](https://github.com/Riyad291/open-shelf/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11%20%E2%80%93%203.12-blue)
-![Tests](https://img.shields.io/badge/tests-149%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-159%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
-A free library of technology books. It imports **2,465 freely available
+A free library of technology books. It imports **2,434 freely available
 titles** from open catalogues, lets you search and browse them, answers
-questions about them from its own files, and recognises books from a
+questions about the site from its own files, and recognises books from a
 photograph of your bookshelf.
 
 The face recogniser, the image descriptor and the search ranking are written
@@ -37,7 +37,7 @@ export JWT_SECRET="$(python -c 'import secrets; print(secrets.token_urlsafe(48))
 
 alembic upgrade head
 python tools/seed_db.py                        # demo library and accounts
-python tools/import_resources.py free-programming-books   # 2,465 real resources
+python tools/import_resources.py free-programming-books   # 2,434 real resources
 python -m bookstore.api
 ```
 </details>
@@ -69,24 +69,26 @@ together — and the obvious summary is wrong:
 
 | | Duplicates | Importers that crashed |
 |---|---|---|
-| Check-then-insert | 0 | **7 of 8** |
-| `INSERT … ON CONFLICT DO UPDATE` | 0 | 0 |
+| Check-then-insert | 0 | **35 of 40** |
+| `INSERT … ON CONFLICT DO UPDATE` | 0 | 0 of 40 |
 
 The unique constraint is what makes duplication impossible. The upsert is
 what makes *losing the race survivable*. Two mechanisms, two different
-failures. A re-import of an unchanged catalogue writes nothing: 2,465
-inserted on the first run, 2,465 unchanged on the second.
+failures. A re-import of an unchanged catalogue writes nothing: 2,434
+inserted on the first run, 2,434 unchanged on the second.
 
 **Search that stops working at scale.** `ILIKE '%term%'` cannot use a B-tree
-index at any size. Grown to 101,065 rows and measured:
+index, because of the leading wildcard, so it reads every row. Grown to
+99,794 rows and measured ("machine learning", median of five runs):
 
 | | Time |
 |---|---|
-| `ILIKE` | 239.5 ms, discarding 99,507 rows |
-| `tsvector` + GIN index | **2.0 ms**, same 1,558 results |
+| `ILIKE` on three columns | 128–157 ms, sequential scan |
+| `tsvector` + GIN index | **1.7–2.6 ms**, the same 1,558 rows |
 
-118× for a 2.9 MB index. The full analysis, including a scaling problem that
-turned out not to be real, is in [SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md).
+Fifty to ninety times faster, for a 6.4 MB index. Matching words is also more
+correct: `ILIKE '%rust%'` finds *Zero Trust Networks*. The analysis is in
+[SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md).
 
 ---
 
@@ -94,12 +96,12 @@ turned out not to be real, is in [SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md).
 
 | | |
 |---|---|
-| **Imports real catalogues** | 2,465 resources from free-programming-books (CC-BY-4.0), idempotently, with every run audited |
-| **Search and browse** | TF-IDF keyword search, topic and language facets, 269 topics |
+| **Imports real catalogues** | 2,434 resources from free-programming-books (CC-BY-4.0), idempotently, with every run audited |
+| **Search and browse** | PostgreSQL full-text search over 268 topics, plus TF-IDF search on the demo shelf |
 | **Face sign-in** | Enrol from the browser camera, then sign in by looking at it. Eigenfaces in numpy |
 | **Picture search** | Hand it a photo of a cover; it finds the book |
 | **Shelf Scan** | Photograph a bookshelf. It segments the image, names each book and recommends more |
-| **Assistant** | Answers from the catalogue or from local files via RAG, and always says which |
+| **Assistant** | Answers from the database or from local help files via RAG, always says which, and is measured on 40 labelled questions |
 | **Moderated reviews** | Taboo words masked; more than three blocks the comment and earns a warning; three warnings suspends the account |
 | **Earned standing** | Three reviews that pass moderation make you a trusted contributor, whose ratings count double |
 | **SQL reporting** | CTEs, window functions and deliberate outer joins in the management views |
@@ -124,7 +126,7 @@ is transport; the browser client is a view.
 | **Database** | PostgreSQL · SQLAlchemy 2 · Alembic. Runs on SQLite too |
 | **Auth** | JWT access tokens + rotating refresh tokens with reuse detection; PBKDF2 passwords |
 | **ML / CV** | numpy and OpenCV. Eigenfaces, TF-IDF and the image descriptor are implemented here, not imported |
-| **Testing** | pytest — 149 tests against both databases |
+| **Testing** | pytest — 159 tests against both databases, plus an AI evaluation gate |
 | **CI/CD** | GitHub Actions — tests, migration drift check, conformance, lint, Docker |
 
 Deeper: [ARCHITECTURE.md](ARCHITECTURE.md) ·
@@ -136,9 +138,10 @@ Deeper: [ARCHITECTURE.md](ARCHITECTURE.md) ·
 ## Tests
 
 ```bash
-pytest tests/                                    # 148 passing, 1 skipped
-TEST_DATABASE_URL=postgresql+psycopg://… pytest  # 149 passing
+pytest tests/                                    # 155 passing, 4 skipped
+TEST_DATABASE_URL=postgresql+psycopg://… pytest  # 159 passing
 python tools/verify_features.py                  # 10 of 10 features
+python tools/evaluate_ai.py                      # AI quality gate
 ```
 
 `test_ingest_pipeline.py` includes a concurrency test that runs six importers
@@ -146,6 +149,40 @@ at once and asserts the catalogue neither duplicates nor crashes.
 `test_integration.py` runs one long session and then audits it: reported
 figures must match the rows behind them, every warning must have an event
 recording it, and no account may hold a state the rules say cannot exist.
+
+---
+
+## Reproduce these numbers
+
+Every figure above comes from a script in this repository, not from a note
+someone took once. Each needs an empty PostgreSQL database it may overwrite.
+
+```bash
+# "7 of 8 importers crash" -- 8 importers, 5 trials each
+python tools/bench_imports.py --database postgresql+psycopg://…
+
+# search: ILIKE against the full-text index, at ~100k rows
+python tools/bench_search.py --database postgresql+psycopg://… \
+    --repo ../free-programming-books
+
+# the assistant, on 20 covered and 20 uncovered questions
+python tools/evaluate_ai.py
+python tools/evaluate_ai.py --without-veto    # what the filter contributes
+
+# the ten specification features, driven over the real HTTP API
+python tools/verify_features.py
+```
+
+Timings differ by machine; the ratios are the point. The AI figures are
+exact, since the question sets are fixed.
+
+| What | Measured here |
+|---|---|
+| Concurrent imports | check-then-insert 35 of 40 crashed; upsert 0 of 40 |
+| Search at 99,794 rows | `ILIKE` 128–157 ms → full text 1.7–2.6 ms |
+| Assistant recall | 85% of covered questions answered from the files |
+| Assistant specificity | 80% of unrelated questions kept out (55% without the name filter) |
+| Picture search | the right book ranked first for 10 of 10 covers |
 
 ---
 
@@ -158,7 +195,7 @@ Stated here rather than left to be found.
 - **No accuracy figure is claimed for face recognition.** It is verified end
   to end with synthetic faces and a simulated camera. That proves the
   pipeline, not a number for real faces.
-- **Links are not yet health-checked.** 2,465 URLs point at other people's
+- **Links are not yet health-checked.** 2,434 URLs point at other people's
   servers and will decay. The checker is designed but not built.
 - **The LLM fallback needs Ollama running locally.** Without it, questions are
   still answered from the knowledge base and the app says the model is offline.

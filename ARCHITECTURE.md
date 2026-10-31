@@ -1,9 +1,10 @@
 # Architecture
 
-How this is put together, and why. The decisions that were genuinely close
-are in [ADR-001](docs/adr/ADR-001-postgresql-and-web-only.md); the mapping
-from the original requirements to where each one now lives is in
-[docs/FEATURE_PARITY.md](docs/FEATURE_PARITY.md).
+How Open Shelf is put together, and why. The decisions that were genuinely
+close are recorded as ADRs ([ADR-001](docs/adr/ADR-001-postgresql-and-web-only.md),
+[ADR-002](docs/adr/ADR-002-free-resource-platform.md)); the design for the
+deployed site, with capacity estimates, is in
+[docs/SYSTEM_DESIGN.md](docs/SYSTEM_DESIGN.md).
 
 ---
 
@@ -22,19 +23,22 @@ from the original requirements to where each one now lives is in
                                  │ one Session per request
          ┌───────────────────────▼────────────────────────┐
          │  Services — bookstore/services                 │
-         │  THE BUSINESS RULES LIVE HERE AND NOWHERE ELSE │
+         │  THE RULES LIVE HERE AND NOWHERE ELSE          │
          └───────────────────────┬────────────────────────┘
                                  │ SQLAlchemy 2
          ┌───────────────────────▼────────────────────────┐
-         │  PostgreSQL — 15 tables, Alembic migrations    │
+         │  PostgreSQL — 14 tables, Alembic migrations    │
+         └───────────────────────▲────────────────────────┘
+                                 │ upsert
+         ┌───────────────────────┴────────────────────────┐
+         │  Importer — bookstore/ingest                   │
+         │  parse a catalogue, write it idempotently      │
          └────────────────────────────────────────────────┘
 ```
 
-One rule, one place. The API layer validates input, decides who is calling and
-serialises the answer; it does not know that a VIP gets 10% off. The browser
-client renders; it does not know either. This is why adding the HTTP layer to
-what had been a desktop application required writing transport and nothing
-else, and it is the property most worth preserving.
+One rule, one place. The API layer validates input, decides who is calling
+and serialises the answer; it does not know that a trusted contributor's
+rating counts double. The browser client renders; it does not know either.
 
 ---
 
@@ -42,155 +46,186 @@ else, and it is the property most worth preserving.
 
 ### `bookstore/db` — schema and session
 
-`models.py` is the schema: fifteen tables with foreign keys, check
-constraints and indexes. Three decisions run through it.
+`models.py` is the schema: fourteen tables with foreign keys, check
+constraints and indexes. Two decisions run through it.
 
-**Money is `Numeric(10, 2)` and `Decimal`, never `float`.** A float cannot
-represent 0.10, so a balance built from float arithmetic drifts. This is the
-most common defect in a hobby e-commerce schema.
+**Constraints are in the database, not only in Python.** Stars are 1 to 5, a
+username is unique, and an import cannot insert the same resource twice
+because `(source_id, external_id)` is UNIQUE. Validation in Python gives a
+nicer message; the constraint is what actually holds.
 
-**Prices are captured, not referenced.** An `order_item` stores the price
-actually paid. Referencing the book's current price instead means raising a
-price silently rewrites every past receipt.
+**Imported rows take their identity from upstream.** A resource is known by
+the hash of its normalised URL, not by our id, so re-running an import finds
+the row it wrote last time.
 
-**Derived figures are computed, not stored.** `purchase_count` and
-`total_spent` are `column_property` correlated subqueries over the orders
-table. They were Python properties walking relationships at first, which cost
-**41 queries to list ten books** — on the catalogue, the most requested page
-in the shop. A counter that can disagree with the rows it counts is a bug
-waiting for a demo; a subquery in the same `SELECT` is neither.
+On PostgreSQL, `resources` also has a generated `tsvector` column with a GIN
+index for full-text search. It is not mapped on the model, because SQLite has
+no such type; the same DDL runs after `create_all` and in a migration, and
+`alembic/env.py` excludes it from drift checks.
 
 `base.py` owns the engine and the session. `get_session` gives each request
-one session and commits it once, so a request either makes all of its changes
-or none of them.
+one session and commits it once, so a request makes all of its changes or
+none of them.
+
+### `bookstore/ingest` — the importer
+
+| Module | Responsibility |
+|---|---|
+| `parsers.py` | One markdown list line to one record. No database, so it is tested against real upstream lines |
+| `pipeline.py` | Records to rows: content-hash diff, `INSERT … ON CONFLICT DO UPDATE`, topic links, an audit row per run |
+| `sources/` | One module per catalogue: where to fetch it, its licence, its credit line |
+
+Parsing is where the surprises are; writing is where the damage is. Keeping
+them apart means each can be tested without the other.
 
 ### `bookstore/services` — the rules
 
 | Module | Responsibility |
 |---|---|
-| `accounts.py` | Registration, sign-in, suspension, deposits, the warning ladder |
-| `cart.py` | The basket. Reserves nothing; checkout is where stock is decided |
-| `checkout.py` | The transaction: row locks, pricing, order, payment, ledger |
-| `reviews.py` | Ratings, purchaser weighting, moderation, the two order lists |
-| `catalog.py` | Browsing, facets, TF-IDF keyword search |
-| `recommend.py` | Three picks, personalised by privilege |
-| `finance.py` | The finance report and the SQL analytics |
+| `accounts.py` | Registration, passwords (PBKDF2), suspension, the warning ladder, promotion |
+| `reviews.py` | Ratings, trusted weighting, moderation, the recommended and not-recommended lists |
+| `resources.py` | Browsing and searching the imported catalogue; counting click-throughs |
+| `catalog.py` | Browsing, facets and TF-IDF search over the demo shelf |
+| `recommend.py` | Three picks, from what a reader browsed and reviewed |
+| `insights.py` | The administrator's figures, in SQL: outer joins, a running-total window, a partitioned rank |
 | `auth.py` | JWT access tokens, rotating refresh tokens, reuse detection |
-| `pricing.py` | What a given customer pays — one answer, three callers |
-
-`pricing.py` exists because the catalogue, the cart and checkout all need the
-same number. A price shown and a price charged that differ by a cent is a
-defect customers notice before anybody else does.
+| `chat_adapter.py`, `image_catalogue.py` | Adapters for the assistant and image search (below) |
 
 ### `bookstore/api` — transport
 
-Split by resource, one router each. Authorisation is declared as a dependency
-(`require_user`, `require_super_user`) rather than written into each handler,
-so a new endpoint either states its privilege or is public on purpose.
-Spreading `if user.role != "SU"` through twenty handlers is how one of them
-ends up missing it.
+Split by resource, one router each. Authorisation is a dependency
+(`require_user`, `require_super_user`), not an `if` inside each handler, so an
+endpoint either states its privilege or is public on purpose.
 
 `schemas.py` is deliberately separate from the ORM models. Returning ORM
-objects is convenient and is how password hashes end up in JSON: add a column
-and it appears in every response that serialises that model. Here a field
-reaches the client only because somebody wrote it down.
+objects is how password hashes end up in JSON: add a column and it appears in
+every response. Here a field reaches the client only because somebody wrote it
+down.
 
-### The adapters
+### The AI modules and their adapters
 
-`biometrics.py`, `imagesearch.py`, `shelfscan.py` and the 683-line assistant
-in `chat.py` were written against the original file-backed store. Between them
-they used eleven methods from it. Rather than rewrite four carefully tuned
-modules for a storage change they are indifferent to,
-`services/image_catalogue.py` and `services/chat_adapter.py` serve those same
-eleven names over SQL. The image and recognition code crossed the migration
-untouched.
+`chat.py` (intent routing and role tiering), `rag.py` (retrieval),
+`imagesearch.py`, `shelfscan.py` and `biometrics.py` were written against
+the original file-backed store. `bookstore/ports.py` writes down, as
+`typing.Protocol` classes, the five methods they need; the adapters in
+`services/` provide those over SQL. The recognition code crossed two storage
+changes without being edited.
+
+Retrieval is TF-IDF over the help files in `data/kb`, with two extra rules for
+deciding whether a question is "local": the best passage must share a rare
+term with the question, and the question must not name something the files
+never mention. `tools/evaluate_ai.py` measures both on labelled questions.
 
 ---
 
 ## Things that were harder than they looked
 
-### Selling the last copy twice
+### Eight importers, one catalogue
 
-`purchase()` checked stock and then decremented it. Two callers that both pass
-the check both settle, and `max(0, stock - 1)` hides it: stock reads zero
-rather than negative while two customers are charged.
+The importer runs on a schedule and can overlap a manual run. The UNIQUE
+constraint stops duplicates, so it is tempting to call the job done.
+Measured with eight importers starting together (`tools/bench_imports.py`):
 
-Measured on PostgreSQL, sixteen customers checking out one copy at once:
+| | Duplicate rows | Importers that crashed |
+|---|---|---|
+| Check, then insert | 0 | **35 of 40** |
+| `INSERT … ON CONFLICT DO UPDATE` | 0 | 0 |
 
-| | Orders paid |
-|---|---|
-| No row lock | **9 of 16** |
-| `SELECT … FOR UPDATE` | 1 of 16 |
+Both are "correct" about duplicates. Only one survives losing the race.
 
-Two details matter. Locks are taken in **ascending book id**, because two
-customers buying the same two books in opposite orders deadlock otherwise.
-And `CHECK (stock >= 0)` does **not** prevent this: in a lost update every
-session reads 1 and writes 0, so no row goes negative and the constraint never
-fires. The constraint catches a single transaction going past zero. Only the
-lock catches the race.
+### Search that reads every row
 
-`tests/test_concurrency.py` keeps a canary that reimplements checkout without
-the lock and asserts it oversells, so if the race ever stops reproducing the
-real test says so instead of passing quietly.
+`ILIKE '%term%'` cannot use a B-tree index, because of the leading wildcard.
+At 2,434 rows that costs a few milliseconds and nobody notices. At about
+100,000 (`tools/bench_search.py`) it took 128–157 ms; the full-text index
+returned the same 1,558 rows for "machine learning" in 1.7–2.6 ms. Word
+matching is also more correct: `ILIKE '%rust%'` finds *Zero Trust Networks*.
 
-### Face login that worked half the time
+### Bugs that only real data showed
 
-Enrolment was never the problem. Signing in used one photograph, and against a
-trained model three consecutive frames of the same person scored 0.774, 0.662
-and 0.484 against a 0.62 threshold. A blink or a slight turn and the account
-owner was refused with nothing to act on. The client sends a short burst and
-the server keeps the best. Rejection is unweakened: a stranger's best frame
-still has to clear the same threshold.
+Putting the 2,434 imported books on a page found three faults that every
+test had passed: topic names carrying upstream HTML anchors
+(`<a id="csharp"></a>C\#`); a slug function that dropped "+" and "#", merging
+C, C++ and C# into one topic; and topic links that were only ever added, so a
+re-categorised book kept its old topic forever. Each now has a test built from
+the real line that exposed it.
 
-### The same code behaving differently on two databases
+### An evaluation that was too easy
 
-PostgreSQL returns `TIMESTAMP WITH TIME ZONE` as an aware datetime; SQLite has
-no timezone type and returns a naive one. Comparing a token's expiry against
-now raised `TypeError` on SQLite only — on the path every signed-in person
-takes every fifteen minutes. `models.as_utc` normalises on read, and the suite
-runs against both databases so the next one of these is caught by CI.
+The first evaluation of the assistant used questions phrased much like the
+help files, and showed 94% recall. Rewritten the way a visitor asks, recall
+was 40%. The causes were a stemmer that turned "store" and "stored" into
+different words, a filter that refused any question containing a word the
+files never used, and role-locked intents that told visitors "access denied"
+for questions about how the rules work. After fixing each on principle and
+measuring once: 85% recall, 80% of unrelated questions kept out (55% without
+the filter). The 90% goal is not met; that gap is the case for semantic
+search.
+
+### A moderation rule with a back door
+
+Posting a comment with taboo words earned a warning; editing one did not.
+Post something clean, then edit it as often as you like: five blocked edits,
+zero warnings. Posting and editing now share one function, and the warning is
+committed before the error is returned, because the request's rollback would
+otherwise undo it.
 
 ### Security theatre
 
 Refresh-token reuse detection revoked the whole token family and then raised
-an error. The session dependency rolls back when a request raises, which undid
-the revocation: the API answered *"this session was ended for security"* while
-every token kept working. A service committing its own work is normally a
-smell; here it is the point, and the reasoning is in the code beside it.
+an error. The session dependency rolls back when a request raises, which
+undid the revocation: the API said *"this session was ended for security"*
+while every token kept working. A service committing its own work is normally
+a smell; here it is the point.
 
-### Stale ORM collections
+### The same code behaving differently on two databases
 
-Three separate bugs came from the same misunderstanding: `session.add()` and
-`session.delete()` do not update an already-loaded relationship collection. A
-second checkout in one session saw an empty cart; removing a line left it on
-screen; clearing the cart issued every `DELETE` twice. Mutating through the
-collection, or querying instead of trusting it, fixes each.
+PostgreSQL returns `TIMESTAMP WITH TIME ZONE` as an aware datetime; SQLite
+returns a naive one. Comparing a token's expiry against now raised
+`TypeError` on SQLite only. `models.as_utc` normalises on read, and CI runs
+the suite against both.
+
+### Face sign-in that worked half the time
+
+Signing in used one photograph, and three consecutive frames of the same
+person scored 0.774, 0.662 and 0.484 against a 0.62 threshold. The client
+sends a short burst and the server keeps the best frame. A stranger's best
+frame still has to clear the same threshold.
+
+### History: selling the last copy twice
+
+Before Open Shelf was free (ADR-002), checkout checked stock and then
+decremented it. Sixteen simultaneous checkouts of one copy: **9 of 16** paid
+without a row lock, 1 of 16 with `SELECT … FOR UPDATE`. `CHECK (stock >= 0)`
+does not catch it — in a lost update every session reads 1 and writes 0, so
+no row goes negative. That code is preserved at the `v1.0-coursework` tag.
 
 ---
 
 ## Resolved ambiguities
 
-The original specification contradicted itself in four places. Each resolution
-is a flag under `spec_interpretation` in `config/settings.json`, so the
-reading taken is visible and reversible rather than buried.
+The original specification contradicted itself in places. The two that still
+apply are flags under `spec_interpretation` in `config/settings.json`, so the
+reading taken is visible and reversible.
 
 | Flag | Default | Why |
 |---|---|---|
-| `allow_overdraft_purchase` | `false` | A purchase you cannot afford is refused *and* fined. The other reading lets it through and allows a negative balance. |
-| `demotion_blocks_repromotion` | `true` | Item 7 demotes a VIP to registered; item 8 promotes a registered customer who has bought enough. Together they promote the person straight back, so a demoted VIP is marked ineligible. |
 | `order_lists_use_weighted_average` | `true` | The weighted average classifies; the unweighted count decides whether there are "more than 3 ratings". Mixing them puts the wrong book on the list. |
 | `visitors_may_review` | `true` | Item 7 says *any* user can comment. A visitor has no account to carry a warning, so a blocked visitor comment is refused and logged instead. |
+
+A third, that a demoted contributor is not promoted straight back, is now a
+column (`users.promotion_blocked`) rather than a flag.
 
 ---
 
 ## What is deliberately not here
 
-- **No ORM for the recognition code.** Eigenfaces, MFCCs, the image descriptor
-  and TF-IDF are numpy. OpenCV is used only for camera access and face
-  detection, because OpenCV 5 removed the contrib `face` module.
-- **No front-end framework.** Three files, no build step, no `node_modules`.
-- **No message queue, no cache, no microservices.** A bookstore with sixteen
-  titles does not need them, and adding them to look serious is how a project
-  stops being readable.
-- **No rate limiting.** A real gap, listed under Known limitations in the
+- **No ML framework for the recognition code.** Eigenfaces, the image
+  descriptor and TF-IDF are numpy. OpenCV is used only for face detection.
+- **No LangChain.** Retrieval is about 340 lines that can be read in one
+  sitting, and the evaluation measures them directly.
+- **No front-end framework.** Three files, no build step.
+- **No queue, no Redis, no microservices.** Imports run from cron in the same
+  image; the reasoning is in SYSTEM_DESIGN.md.
+- **No rate limiting and no link checker yet.** Real gaps, listed in the
   README rather than left to be found.

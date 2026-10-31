@@ -120,6 +120,10 @@ def main() -> int:
     print("Imported %d resources" % report.inserted)
 
     with engine.begin() as connection:
+        connection.execute(text("ANALYZE resources"))
+        print("At the real size: table with indexes %s\n" % connection.execute(
+            text("SELECT pg_size_pretty(pg_total_relation_size('resources'))")
+        ).scalar())
         small = {"browse": explain(connection, BROWSE, {}, args.runs)}
         for term in args.terms:
             small[term] = explain(connection, ILIKE,

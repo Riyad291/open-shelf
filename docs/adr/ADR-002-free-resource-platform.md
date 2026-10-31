@@ -1,6 +1,6 @@
 # ADR-002: Become a free resource platform, not a shop
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-10-30
 **Deciders:** Project owner
 **Builds on:** [ADR-001](ADR-001-postgresql-and-web-only.md)
@@ -119,9 +119,12 @@ a second source once the first is solid.
 - [x] 1. Resource catalogue schema and migration
 - [x] 2. Idempotent importer for free-programming-books
 - [x] 3. This record
-- [ ] 4. Link checker
-- [ ] 5. Remove commerce, with its own migration
-- [ ] 6. Rewrite `tools/verify_features.py` for the reinterpreted features
-- [ ] 7. Semantic search
-- [ ] 8. Deploy
-- [ ] 9. Rewrite README and ARCHITECTURE
+- [x] 4. Remove commerce, with its own migration
+- [x] 5. Rewrite `tools/verify_features.py` for the reinterpreted features
+- [x] 6. Rewrite README, ARCHITECTURE and FEATURE_PARITY
+- [x] 7. A library page, so readers can actually see the catalogue
+- [x] 8. Full-text search, with a benchmark that reproduces the claim
+- [ ] 9. Link checker
+- [ ] 10. Semantic search, measured against the existing evaluation set
+- [ ] 11. Rate limiting
+- [ ] 12. Deploy

@@ -80,7 +80,6 @@ DEFAULTS: Dict[str, Any] = {
     "to_order_min_avg": 4.0,
     "max_taboo_before_block": 3,
     "spec_interpretation": {
-        "demotion_blocks_repromotion": True,
         "order_lists_use_weighted_average": True,
         "visitors_may_review": True,
     },

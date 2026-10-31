@@ -117,22 +117,27 @@ Page size is capped at 100 so that one request cannot ask for the whole table.
 
 ### 3.3 Search
 
-Measured on PostgreSQL 16, first at the real catalogue size (2,465 rows) and
-then at 101,065 rows, with synthetic rows generated from the real ones:
+Measured on PostgreSQL 16 by `tools/bench_search.py`: first at the real
+catalogue size (2,434 rows), then grown to 99,794 rows by copying every row
+forty times with its own identity. Each figure is the median of five runs
+after a warm-up; three full runs varied by about 20%, so ranges are quoted.
 
-| Query | 2,465 rows | 101,065 rows |
+| Query | 2,434 rows | 99,794 rows |
 |---|---|---|
-| Browse, first page by title | 2.0 ms (sequential scan) | 0.37 ms (`ix_resources_title`) |
-| Search, `ILIKE '%term%'` on three columns | 6.8 ms | **239.5 ms** |
-| Search, `tsvector` column with a GIN index | — | **2.0 ms**, same 1,558 rows |
+| Browse, first page by title | 0.05 ms | 0.06 ms (`ix_resources_title`) |
+| Search "machine learning", `ILIKE` on three columns | 3 ms | **128–157 ms** (sequential scan) |
+| Search "machine learning", `tsvector` + GIN index | — | **1.7–2.6 ms**, the same 1,558 rows |
 
-- **Browse was never unindexed.** At 2,465 rows the planner chose a
-  sequential scan because the table fit in a few pages. At 101,065 it
-  switched to the title index by itself.
-- **`ILIKE` cannot use a B-tree index** with a leading wildcard, so it reads
-  every row. That is fine at 2,465 rows and 118 times slower than full-text
-  search at 101,065.
-- **The GIN index costs 2.9 MB** at 101,065 rows.
+- **`ILIKE '%term%'` cannot use a B-tree index**, because of the leading
+  wildcard, so it reads every row. At 2,434 rows that is 3 ms and nobody
+  notices; at 100,000 it is 50 to 90 times slower than the full-text index.
+- **Word matching is also more correct.** `ILIKE '%rust%'` finds *Zero Trust
+  Networks*; the full-text index matches the word, and its forms
+  ("programs" finds "Programming").
+- **The GIN index costs 6.4 MB** at 99,794 rows, a tenth of the table.
+- **Browse is an index scan at both sizes.** An earlier measurement showed a
+  sequential scan at the small size; that was the planner working from stale
+  statistics before `ANALYZE`, not a missing index.
 
 Further steps, in order, each only when the previous one is not enough:
 
@@ -184,23 +189,23 @@ visitor cannot spend the whole budget.
 
 ### Storage, measured
 
-| Rows | Table and indexes | With full-text index | Bytes per row |
-|---|---|---|---|
-| 2,465 | 1.7 MB | — | 701 |
-| 101,065 | 54 MB | 64 MB | 534 |
+| Rows | Table, indexes and full-text index | Bytes per row |
+|---|---|---|
+| 2,434 | 2.2 MB | about 950 |
+| 99,794 | 64 MB | about 670 |
 
-The per-row cost falls as fixed overhead is shared, which is why a straight
-line from the small table overstated the large one by about 30%.
+The per-row cost falls as fixed overhead is shared, so a straight line from
+the small table overstates the large one by about 40%.
 
-**Embeddings dominate everything else.** At 101,065 rows, 768-dimension
-vectors take about 307 MB and 1,536 dimensions about 614 MB, which is most of
+**Embeddings dominate everything else.** At 99,794 rows, 768-dimension
+float32 vectors take about 307 MB and 1,536 dimensions about 613 MB, most of
 the free tier's 1 GB. That is the argument for the smaller model.
 
 ### Traffic
 
-A 239 ms search ties up a worker for 239 ms, so one process serves about four
-searches a second. Full-text search at 2 ms raises that ceiling more than a
-hundredfold, which is why it comes before any horizontal scaling.
+A 128 ms search ties up a worker for 128 ms, so one process serves about
+eight searches a second. Full-text search at about 2 ms raises that ceiling
+roughly fiftyfold, which is why it comes before any horizontal scaling.
 
 ### Scaling order
 
@@ -235,12 +240,13 @@ reports what the process is serving.
 1. ~~Resource schema and idempotent importer~~
 2. ~~Browse, search and open API~~
 3. ~~Remove commerce~~
-4. Full-text search migration
+4. ~~Full-text search migration~~
 5. Link checker
 6. Rate limiting
 7. Deploy (API plus database on free tiers)
 8. Server-rendered pages for search engines
-9. Semantic search, behind an evaluation set
+9. Semantic search, measured against the existing evaluation set
+   (keyword retrieval keeps 80% of unrelated questions out; the goal is 90%)
 10. A second source
 
 ## 7. What to revisit
