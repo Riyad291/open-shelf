@@ -213,6 +213,9 @@ class BiometricStatusOut(BaseModel):
     required_samples: int
     available: bool
     message: str = ""
+    #: Set where an enrolment will not survive a restart. The client says so
+    #: before anyone photographs themselves.
+    storage_is_ephemeral: bool = False
 
 
 class EnrolResultOut(BaseModel):

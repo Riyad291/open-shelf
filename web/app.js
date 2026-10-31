@@ -359,7 +359,7 @@ function bookSheet(book) {
                  ? "not-recommended" : "recommended"}</b> list.</p>` : ""}
         <p class="serif">${esc(book.description)}</p>
 
-        <div id="buy-area"></div>
+        <div id="account-note"></div>
       </div>
     </div>
 
@@ -390,14 +390,14 @@ function reviewHtml(r) {
 }
 
 function wireBookSheet(book) {
-  const buy = $("#buy-area");
+  const note = $("#account-note");
   if (!state.session.signed_in) {
-    buy.innerHTML = `<p class="muted">You can rate and comment as a visitor.
+    note.innerHTML = `<p class="muted">You can rate and comment as a visitor.
       Sign in and your ratings are kept with your account.</p>`;
   } else if (state.session.role === "SU") {
-    buy.innerHTML = `<p class="muted">You are signed in as an administrator.</p>`;
+    note.innerHTML = `<p class="muted">You are signed in as an administrator.</p>`;
   } else {
-    buy.innerHTML = `<p class="muted">Everything here is free. Rate it below
+    note.innerHTML = `<p class="muted">Everything here is free. Rate it below
       and your reviews build your standing.</p>`;
   }
 
@@ -481,7 +481,14 @@ async function paintFacePanel() {
     return;
   }
 
+  const ephemeral = status.storage_is_ephemeral
+    ? `<p class="note">On this demo the photographs are written to a disk
+       that is wiped whenever the container restarts, so an enrolment lasts
+       until then. Run the project locally to try face sign-in properly.</p>`
+    : "";
+
   panel.innerHTML = `
+    ${ephemeral}
     <div class="stats">
       <div class="stat"><div class="stat-k">Photographs enrolled</div>
         <div class="stat-v ${status.face_samples ? "good" : ""}">${status.face_samples}</div></div>
@@ -490,7 +497,7 @@ async function paintFacePanel() {
       <div class="stat"><div class="stat-k">Detector</div>
         <div class="stat-v small">${esc(status.detector)}</div></div>
     </div>
-    <div class="buy-row">
+    <div class="action-row">
       <button class="btn btn-solid" id="enrol-face">
         ${status.face_samples ? "Add more photographs" : "Enrol my face"}
       </button>

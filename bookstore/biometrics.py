@@ -31,6 +31,32 @@ a deployed server has none, and the camera is the visitor's.
 
 Every public function degrades to a clear message rather than an exception when
 a dependency is missing.
+
+What this is not
+----------------
+It is not a security mechanism, and the site does not treat it as one.
+Password sign-in is the real one; this is an extra way in, and the
+administrator always keeps a password so nobody can be locked out by it.
+Three reasons, each of which an interviewer should be told before they
+have to ask:
+
+1.  **A photograph defeats it.** There is no liveness check. Holding a
+    picture of an enrolled face to the camera passes, because the pipeline
+    compares appearance and nothing else. Liveness detection is a research
+    problem in its own right, not a missing ``if``.
+2.  **The accuracy here is unmeasured.** It was developed and tested
+    against generated faces, which are far easier to tell apart than real
+    ones: they vary in ways real lighting and expression do not. No claim
+    is made about a false-accept rate, because none was measured on real
+    faces.
+3.  **A face is not a password.** It cannot be rotated after a leak. That
+    is an argument about what to store, not about what to compute, and it
+    is why the samples are kept as files outside the database and why
+    deleting them is one request (``DELETE /api/biometrics/face``).
+
+What it is, then: a complete eigenfaces implementation -- detection,
+alignment, PCA by SVD, nearest neighbour, a rejection threshold -- written
+in numpy rather than imported, which is the part worth reading.
 """
 
 from __future__ import annotations

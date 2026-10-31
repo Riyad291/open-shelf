@@ -42,5 +42,13 @@ services:
       - key: CORS_ORIGINS
         value: https://open-shelf-1qsl.onrender.com
 
+      # The free tier has no persistent disk: the filesystem is rebuilt on
+      # every restart. Cover images are regenerated at boot (tools/start.py),
+      # but a face enrolment cannot be -- the photographs are the data. The
+      # app cannot detect this, so the deployment declares it and the face
+      # panel warns before anyone uses the camera.
+      - key: FACE_STORAGE_EPHEMERAL
+        value: "1"
+
       - key: PYTHONUNBUFFERED
         value: "1"

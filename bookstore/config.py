@@ -73,6 +73,12 @@ DEFAULTS: Dict[str, Any] = {
     "require_face_login": True,
     "super_user_password_bootstrap": True,
     "face_enrolment_samples": 5,
+    # True where the container's filesystem does not survive a restart, as
+    # on a free hosting tier. Face photographs are files, so an enrolment
+    # lasts only until the next restart there. The app cannot detect this,
+    # and silently losing somebody's enrolment is worse than saying so, so
+    # the deployment declares it (FACE_STORAGE_EPHEMERAL=1).
+    "face_storage_is_ephemeral": False,
     "trusted_weight": 2.0,
     "normal_weight": 1.0,
     "min_ratings_for_list": 3,

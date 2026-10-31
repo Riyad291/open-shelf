@@ -1,11 +1,12 @@
 {
-  "_comment": "Every tunable business rule lives here. Change a value and restart the app; no code edits needed. The two 'policy' flags are places the original spec was ambiguous -- see ARCHITECTURE.md section 'Resolved ambiguities'.",
+  "_comment": "Every tunable business rule lives here. Change a value and restart the app; no code edits needed. The two 'policy' flags are places the original feature list contradicted itself -- see ARCHITECTURE.md section 'Resolved ambiguities'.",
   "trusted_review_threshold": 3,
   "warning_limit": 2,
   "require_face_enrolment": true,
   "require_face_login": true,
   "super_user_password_bootstrap": true,
   "face_enrolment_samples": 5,
+  "face_storage_is_ephemeral": false,
   "trusted_weight": 2.0,
   "normal_weight": 1.0,
   "min_ratings_for_list": 3,

@@ -82,6 +82,9 @@ def status_(user: m.User = Depends(require_user)):
         available=service.available(),
         message="" if service.available()
         else service.dependency_message(),
+        storage_is_ephemeral=bool(
+            os.environ.get("FACE_STORAGE_EPHEMERAL")
+            or config.get("face_storage_is_ephemeral")),
     )
 
 

@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/Riyad291/open-shelf/actions/workflows/ci.yml/badge.svg)](https://github.com/Riyad291/open-shelf/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11%20%E2%80%93%203.12-blue)
-![Tests](https://img.shields.io/badge/tests-179%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-180%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
 A free library of technology books. It imports **2,434 freely available
@@ -125,7 +125,7 @@ correct: `ILIKE '%rust%'` finds *Zero Trust Networks*. The analysis is in
 |---|---|
 | **Imports real catalogues** | 2,434 resources from free-programming-books (CC-BY-4.0), idempotently, with every run audited |
 | **Search and browse** | PostgreSQL full-text search over 268 topics, plus TF-IDF search on the demo shelf |
-| **Face sign-in** | Enrol from the browser camera, then sign in by looking at it. Eigenfaces in numpy |
+| **Face recognition** | Eigenfaces in numpy: detect, align, PCA by SVD, nearest neighbour, and a threshold that lets it say "I don't know you". A demonstration, not the site's security -- see below |
 | **Picture search** | Hand it a photo of a cover; it finds the book |
 | **Shelf Scan** | Photograph a bookshelf. It segments the image, names each book and recommends more |
 | **Assistant** | Answers from the database or from local help files via RAG, falls back to a hosted LLM, always says which, and is measured on 40 labelled questions |
@@ -220,9 +220,14 @@ Stated here rather than left to be found.
 
 - **No rate limiting.** Passwords are PBKDF2 over 120,000 rounds, but nothing
   stops an attacker trying.
-- **No accuracy figure is claimed for face recognition.** It is verified end
-  to end with synthetic faces and a simulated camera. That proves the
-  pipeline, not a number for real faces.
+- **Face recognition is a demonstration, not a security mechanism.** A
+  photograph of an enrolled face passes, because there is no liveness check.
+  It is verified end to end with synthetic faces and a simulated camera,
+  which proves the pipeline and gives no honest number for real faces.
+  Password sign-in is the real one, the administrator always keeps a
+  password, and the samples can be deleted in one request. On the deployed
+  demo the container's disk is wiped on restart, so an enrolment there lasts
+  until the next one; the face panel says so before you use the camera.
 - **Links are not yet health-checked.** 2,434 URLs point at other people's
   servers and will decay. The checker is designed but not built.
 - **General-knowledge answers need an API key.** `LLM_API_KEY` reaches any
