@@ -403,8 +403,8 @@ class Resource(Base, TimestampMixin):
 #
 # A generated column holds each row's search document -- title weighted
 # highest, then authors, then description -- and a GIN index makes matching
-# against it an index lookup. Measured at 101,065 rows: ILIKE '%term%' read
-# every row in 239.5 ms; this returned the same rows in 2.0 ms
+# against it an index lookup. Measured at 99,794 rows: ILIKE '%term%' read
+# every row in 128-157 ms; this returned the same 1,558 rows in 1.7-2.6 ms
 # (tools/bench_search.py reproduces it).
 #
 # It is not a mapped column because SQLite has no tsvector: declaring it on

@@ -288,7 +288,11 @@ class ChatService:
     # ======================================================================
 
     def _answer_from_rag(self, question: str, context: str, hits, best: float) -> ChatAnswer:
-        citations = [h.citation for h in hits]
+        # Several chunks can come from the same heading -- a section with
+        # three paragraphs is three chunks -- and the citation is
+        # "file -> heading", so the same string repeats. Deduplicated in
+        # order: a reader wants the sources, not one per passage.
+        citations = list(dict.fromkeys(h.citation for h in hits))
 
         # If Ollama is up, let it phrase the retrieved context as prose; the
         # answer is still RAG because the facts come from local files.  If it

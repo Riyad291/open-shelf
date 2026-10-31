@@ -453,14 +453,14 @@ async function paintAccount() {
      <div class="stat-v ${cls}">${esc(v)}</div></div>`).join("");
 
   if (s.trusted) {
-    $("#vip-note").textContent =
+    $("#trust-note").textContent =
       `You are a trusted contributor: your ratings count double. More than ${WARNING_LIMIT} moderation warnings would return you to member.`;
-    $("#vip-meters").innerHTML = "";
+    $("#trust-meters").innerHTML = "";
   } else {
-    $("#vip-note").textContent =
+    $("#trust-note").textContent =
       `${TRUSTED_AFTER} reviews that pass moderation make you a trusted contributor.`;
     const v = s.review_count || 0;
-    $("#vip-meters").innerHTML = `
+    $("#trust-meters").innerHTML = `
       <div>
         <div class="meter-k"><span>Reviews accepted</span>
           <span>${v} of ${TRUSTED_AFTER}</span></div>
