@@ -46,6 +46,28 @@ python -m bookstore.api
 Sign in as `margaret` / `admin123` for the management views, or `carol` /
 `carol123` to see a trusted contributor's double-weighted ratings.
 
+<details>
+<summary>Deploy it</summary>
+
+`render.yaml` describes the service, so the deployment is reviewable and
+repeatable rather than a set of remembered dashboard clicks.
+
+1. Create a free PostgreSQL database at [neon.tech](https://neon.tech) and
+   copy its connection string.
+2. On [render.com](https://render.com): **New → Blueprint**, point it at this
+   repository. It reads `render.yaml`.
+3. Set two secrets in the dashboard: `DATABASE_URL` (from Neon, with
+   `postgresql+psycopg://` as the scheme) and, optionally, `LLM_API_KEY`.
+   `JWT_SECRET` is generated for you and kept across deploys.
+
+`tools/start.py` is the entrypoint. On every boot it migrates, seeds the demo
+shelf if the database is empty, imports the catalogue if it is short, and
+redraws any cover images the container has lost — a free tier has no
+persistent disk, so the rows survive a restart and the PNGs do not. Each step
+checks before it acts, so a restart with nothing to do costs one query.
+
+</details>
+
 ---
 
 ## The three problems worth reading about
@@ -204,8 +226,14 @@ Stated here rather than left to be found.
   questions about the site are still answered from its own files and the
   assistant says the model is not configured. There is no spend ceiling yet,
   which is the other half of the rate-limiting gap above.
-- **`CORS_ORIGINS` defaults to `*`.** Fine for a local demo; name your origin
-  before deploying.
+- **`CORS_ORIGINS` defaults to `*`.** Fine locally; `render.yaml` names the
+  real origin for the deployed site.
+- **The deployed demo accounts are public**, including the administrator.
+  That is deliberate — the management views are worth seeing — but it means
+  anyone can delete a book. The catalogue re-imports itself on the next boot
+  if it is emptied.
+- **A free tier sleeps.** The first request after a quiet spell waits for the
+  container to start.
 
 ## Attribution
 

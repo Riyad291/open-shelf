@@ -51,17 +51,10 @@ services:
       # Covers, the knowledge base and enrolled face samples are files. Kept
       # outside the image so they survive a rebuild.
       - app-data:/app/data
-    # Migrate, seed if empty, import the catalogue, then serve. The migration
-    # is the schema's source of truth -- not create_all() -- so the container
-    # and a developer's machine get the schema the same way. The import is
-    # idempotent, so running it on every start costs one comparison; if
-    # GitHub is unreachable the app still starts, with the demo shelf only.
-    command: >
-      sh -c "alembic upgrade head &&
-             python tools/seed_db.py &&
-             (python tools/import_resources.py free-programming-books
-              || echo 'Catalogue import skipped; the demo shelf still works.') &&
-             uvicorn bookstore.api.app:app --host 0.0.0.0 --port 8000"
+    # The same entrypoint production uses, so a problem with it shows up
+    # here rather than on the deployed site: migrate, seed and import only
+    # if needed, then serve. See tools/start.py.
+    command: ["python", "tools/start.py"]
 
 volumes:
   db-data:

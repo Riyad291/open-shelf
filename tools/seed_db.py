@@ -132,7 +132,7 @@ def seed_activity(session, config, books: list, users: dict) -> None:
     session.flush()
 
 
-def main() -> int:
+def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reset", action="store_true",
                         help="drop every table first")
@@ -140,7 +140,7 @@ def main() -> int:
                         help="download the real texts from gutenberg.org")
     parser.add_argument("--database", default=None,
                         help="override DATABASE_URL for this run")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     ensure_dirs()
     if args.database:

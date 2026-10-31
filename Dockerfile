@@ -1,11 +1,11 @@
-# The bookstore: FastAPI service plus its browser client.
+# Open Shelf: the FastAPI service plus its browser client.
 #
-#     docker compose up --build            # with PostgreSQL, the usual way
-#     docker build -t smart-bookstore .    # the image on its own
+#     docker compose up --build         # with PostgreSQL, the usual way
+#     docker build -t open-shelf .      # the image on its own
 #
-# Face and voice login are unavailable inside a container: there is no camera
-# and no microphone. The application already degrades to a clear message when
-# hardware is missing, which is exactly the behaviour you get here.
+# The same image runs in production. tools/start.py migrates, makes sure
+# there is data, and then serves on $PORT -- which a host assigns, so the
+# process must not pick its own.
 
 FROM python:3.12-slim
 
@@ -37,12 +37,13 @@ RUN useradd --create-home --uid 10001 shopkeeper \
     && chown -R shopkeeper:shopkeeper /app
 USER shopkeeper
 
+ENV PORT=8000
 EXPOSE 8000
 
-# The health endpoint reports the shop it can actually see -- book count,
-# account count, whether the database answered -- so an unhealthy container is
-# one that cannot read its own data, not merely one that failed to bind.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:8000/api/health | grep -q '"database":"ok"'
+# The health endpoint reports the site it can actually see -- book count,
+# account count, whether the database answered -- so an unhealthy container
+# is one that cannot read its own data, not merely one that failed to bind.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD curl -fsS "http://127.0.0.1:${PORT}/api/health" | grep -q '"database":"ok"'
 
-CMD ["uvicorn", "bookstore.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "tools/start.py"]
