@@ -49,6 +49,13 @@ DEFAULT_MODEL = "llama-3.3-70b-versatile"
 RETRY_STATUSES = (429, 500, 502, 503, 504)
 RETRY_AFTER_SECONDS = 1.5
 
+#: Identify this client by name. Without it urllib sends
+#: ``Python-urllib/3.12``, and the content-delivery networks in front of
+#: several providers answer that with a bare 403 and an HTML body. The call
+#: never reaches the API, so the failure looks like a rejected key when the
+#: key is fine. Found against Groq on the deployed site.
+USER_AGENT = "open-shelf/1.0 (+https://github.com/Riyad291/open-shelf)"
+
 
 @dataclass
 class LlmReply:
@@ -158,6 +165,7 @@ class LlmClient:
             data=json.dumps(payload).encode("utf-8"),
             headers={
                 "Content-Type": "application/json",
+                "User-Agent": USER_AGENT,
                 # The one place the key is used. It is not logged, and it is
                 # not put into any error message below.
                 "Authorization": "Bearer " + self.api_key,
@@ -198,11 +206,22 @@ class LlmClient:
     def _http_error(self, exc: urllib.error.HTTPError) -> LlmReply:
         """Turn a status code into something a person can act on."""
         detail = ""
+        raw = b""
         try:
-            body = json.loads(exc.read().decode("utf-8", "ignore"))
-            detail = str((body.get("error") or {}).get("message", ""))[:200]
+            raw = exc.read()
         except Exception:
             pass
+        try:
+            body = json.loads(raw.decode("utf-8", "ignore"))
+            detail = str((body.get("error") or {}).get("message", ""))[:200]
+        except Exception:
+            # Not JSON. A content-delivery network that blocks the request
+            # answers with HTML, and saying so is more use than saying
+            # nothing: it points at the request rather than at the key.
+            if raw.lstrip()[:1] in (b"<",):
+                detail = ("The response was a web page, not JSON, so the "
+                          "request was most likely blocked before it reached "
+                          "the API.")
 
         if exc.code == 401:
             message = ("%s rejected the API key. Check LLM_API_KEY."
@@ -210,6 +229,10 @@ class LlmClient:
         elif exc.code == 404:
             message = ("%s has no model called '%s'. Set LLM_MODEL to one it "
                        "offers." % (self.provider, self.model))
+        elif exc.code == 403:
+            message = ("%s refused the request (HTTP 403). The key may lack "
+                       "access to this model, or the request was blocked "
+                       "before it arrived." % self.provider)
         elif exc.code == 429:
             message = ("%s is rate-limiting this key. Try again shortly."
                        % self.provider)

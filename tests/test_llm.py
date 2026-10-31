@@ -116,6 +116,53 @@ class TestFailuresDegradeInsteadOfRaising:
         assert "LLM_API_KEY" in reply.error
         assert "test-key-not-real" not in reply.error, "never leak the key"
 
+    def test_the_client_identifies_itself(self, client, monkeypatch):
+        """A default urllib User-Agent is refused by some providers' edge."""
+        captured = {}
+
+        def fake_urlopen(request, timeout=None):
+            captured.update(dict(request.header_items()))
+            return FakeResponse(reply_body("ok"))
+
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+        client.generate("hello")
+
+        agent = captured["User-agent"]
+        assert "open-shelf" in agent
+        assert "urllib" not in agent.lower()
+
+    def test_a_blocked_request_is_not_reported_as_a_bad_key(self, client,
+                                                            monkeypatch):
+        """A content-delivery network answers 403 with an HTML page.
+
+        The key is fine; the request never arrived. Blaming the key sends
+        somebody off rotating a credential that was never the problem.
+        """
+        page = b"<html><head><title>403 Forbidden</title></head></html>"
+        monkeypatch.setattr("urllib.request.urlopen",
+                            lambda *a, **k: (_ for _ in ()).throw(
+                                urllib.error.HTTPError(
+                                    "https://api.example.com/v1", 403,
+                                    "Forbidden", {}, io.BytesIO(page))))
+        reply = client.generate("hello")
+
+        assert not reply.ok
+        assert "403" in reply.error
+        assert "blocked" in reply.error
+        assert "LLM_API_KEY" not in reply.error
+        assert "test-key-not-real" not in reply.error
+
+    def test_a_403_is_not_retried(self, client, monkeypatch):
+        calls = []
+
+        def fake_urlopen(request, timeout=None):
+            calls.append(1)
+            raise http_error(403, "")
+
+        monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+        client.generate("hello")
+        assert len(calls) == 1, "a refusal repeats identically"
+
     def test_an_unknown_model_names_the_setting_to_change(self, client,
                                                           monkeypatch):
         monkeypatch.setattr("urllib.request.urlopen",
