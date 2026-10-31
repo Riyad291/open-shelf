@@ -34,6 +34,7 @@ itself at `/docs`.
 pip install -r requirements.txt
 export DATABASE_URL="sqlite:///shelf.db"
 export JWT_SECRET="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+export LLM_API_KEY="..."     # optional; free key at https://console.groq.com
 
 alembic upgrade head
 python tools/seed_db.py                        # demo library and accounts
@@ -101,7 +102,7 @@ correct: `ILIKE '%rust%'` finds *Zero Trust Networks*. The analysis is in
 | **Face sign-in** | Enrol from the browser camera, then sign in by looking at it. Eigenfaces in numpy |
 | **Picture search** | Hand it a photo of a cover; it finds the book |
 | **Shelf Scan** | Photograph a bookshelf. It segments the image, names each book and recommends more |
-| **Assistant** | Answers from the database or from local help files via RAG, always says which, and is measured on 40 labelled questions |
+| **Assistant** | Answers from the database or from local help files via RAG, falls back to a hosted LLM, always says which, and is measured on 40 labelled questions |
 | **Moderated reviews** | Taboo words masked; more than three blocks the comment and earns a warning; three warnings suspends the account |
 | **Earned standing** | Three reviews that pass moderation make you a trusted contributor, whose ratings count double |
 | **SQL reporting** | CTEs, window functions and deliberate outer joins in the management views |
@@ -126,6 +127,7 @@ is transport; the browser client is a view.
 | **Database** | PostgreSQL · SQLAlchemy 2 · Alembic. Runs on SQLite too |
 | **Auth** | JWT access tokens + rotating refresh tokens with reuse detection; PBKDF2 passwords |
 | **ML / CV** | numpy and OpenCV. Eigenfaces, TF-IDF and the image descriptor are implemented here, not imported |
+| **LLM** | Any OpenAI-compatible API (Groq by default), called over plain `urllib` — no vendor SDK |
 | **Testing** | pytest — 159 tests against both databases, plus an AI evaluation gate |
 | **CI/CD** | GitHub Actions — tests, migration drift check, conformance, lint, Docker |
 
@@ -197,8 +199,11 @@ Stated here rather than left to be found.
   pipeline, not a number for real faces.
 - **Links are not yet health-checked.** 2,434 URLs point at other people's
   servers and will decay. The checker is designed but not built.
-- **The LLM fallback needs Ollama running locally.** Without it, questions are
-  still answered from the knowledge base and the app says the model is offline.
+- **General-knowledge answers need an API key.** `LLM_API_KEY` reaches any
+  OpenAI-compatible provider; the default is Groq's free tier. Without a key,
+  questions about the site are still answered from its own files and the
+  assistant says the model is not configured. There is no spend ceiling yet,
+  which is the other half of the rate-limiting gap above.
 - **`CORS_ORIGINS` defaults to `*`.** Fine for a local demo; name your origin
   before deploying.
 

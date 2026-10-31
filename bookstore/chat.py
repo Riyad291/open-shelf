@@ -22,7 +22,7 @@ Answer sources, in priority order:
 ("store data" is the label the API has always used for answers computed
 from the database; it is kept so the contract does not change.)
     local knowledge base   ->  labelled [via RAG]
-    Ollama                 ->  labelled [via LLM]
+    hosted LLM             ->  labelled [via LLM]
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ from typing import Callable, List, Optional
 from .db import models
 from .catalog import Catalog
 from .config import Config
-from .llm import OllamaClient
+from .llm import LlmClient
 from .ports import CatalogueRules, FinanceReport
 from .rag import Retriever
 from .recommend import Recommender
@@ -89,7 +89,7 @@ class ChatService:
         recommender: Recommender,
         finance: FinanceReport,
         retriever: Optional[Retriever] = None,
-        llm: Optional[OllamaClient] = None,
+        llm: Optional[LlmClient] = None,
     ):
         self.db = storage
         self.cfg = config
@@ -97,7 +97,7 @@ class ChatService:
         self.catalog = catalog
         self.recommender = recommender
         self.retriever = retriever or Retriever(storage)
-        self.llm = llm or OllamaClient(config)
+        self.llm = llm or LlmClient(config)
         # Required, not built here: see ports.FinanceReport for what went
         # wrong when this class made its own.
         self.finance = finance
@@ -294,9 +294,10 @@ class ChatService:
         # order: a reader wants the sources, not one per passage.
         citations = list(dict.fromkeys(h.citation for h in hits))
 
-        # If Ollama is up, let it phrase the retrieved context as prose; the
-        # answer is still RAG because the facts come from local files.  If it
-        # is not up, quote the best chunk directly so the feature still works.
+        # If a model is configured, let it phrase the retrieved context as
+        # prose; the
+        # answer is still RAG because the facts come from local files. With
+        # no key, quote the best chunk directly so the feature still works.
         if self.llm.is_up():
             prompt = (
                 "Answer the reader's question using ONLY the site information "
@@ -316,7 +317,7 @@ class ChatService:
                 return ChatAnswer(
                     reply.text
                     + "\n\n(Answered from Open Shelf's help files, rephrased by the "
-                      "local model '%s'.)" % reply.model,
+                      "model '%s'.)" % reply.model,
                     SOURCE_RAG, citations=citations, rag_score=best,
                 )
 
@@ -368,7 +369,7 @@ class ChatService:
         return ChatAnswer(
             reply.text
             + "\n\n(Not found in Open Shelf's help files, so this was answered by "
-              "the local language model '%s'.)" % reply.model,
+              "the language model '%s'.)" % reply.model,
             SOURCE_LLM, rag_score=best_rag,
         )
 
@@ -390,7 +391,7 @@ class ChatService:
         lines.append("")
         lines.append(
             "Anything about our policies, hours or team is answered from our own "
-            "files (RAG). Everything else goes to the local language model."
+            "files (RAG). Everything else goes to the language model."
         )
         lines.append("You are signed in as: %s" % models.role_name(role))
         return "\n".join(lines)

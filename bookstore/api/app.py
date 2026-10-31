@@ -115,10 +115,7 @@ def create_app(database: Optional[str] = None,
         service = runtime.face_recogniser()
         llm = runtime.llm()
         llm_ready = llm.is_up()
-        llm_note = ("Ollama is answering at %s." % llm.base_url if llm_ready
-                    else "Ollama is not reachable at %s. Start it with "
-                         "'ollama serve', then 'ollama pull %s'."
-                         % (llm.base_url, llm.model))
+        _, llm_note = llm.status()
 
         session = session_factory()()
         try:

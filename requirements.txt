@@ -53,9 +53,10 @@ httpx>=0.27                 # what TestClient drives the API with
 # ultralytics>=8.0
 
 # --- Not a pip install -----------------------------------------------------
-# The assistant's general-knowledge fallback talks to Ollama over plain HTTP
-# using only the standard library. Install Ollama from https://ollama.com:
-#     ollama serve
-#     ollama pull llama3.2
-# Without it, questions about the site are still answered from local files;
-# only general questions are unavailable, and the app says so.
+# The assistant's general-knowledge fallback calls a chat-completions API
+# over plain HTTPS using only the standard library -- no vendor SDK, so
+# nothing to install. Any OpenAI-compatible provider works; the default is
+# Groq, whose free tier needs no card:
+#     export LLM_API_KEY=...        (https://console.groq.com)
+# Without a key, questions about the site are still answered from local
+# files; only general questions are unavailable, and the app says so.

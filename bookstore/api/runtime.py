@@ -59,10 +59,10 @@ def retriever():
 
 
 def llm():
-    from ..llm import OllamaClient
+    from ..llm import LlmClient
     with _lock:
         if "llm" not in _state:
-            _state["llm"] = OllamaClient(config())
+            _state["llm"] = LlmClient(config())
         return _state["llm"]
 
 

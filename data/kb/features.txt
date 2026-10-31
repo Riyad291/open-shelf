@@ -25,10 +25,9 @@ members can ask about their own reviews and standing, trusted contributors
 about the recommendation lists, and the administrator about catalogue
 statistics, accounts and moderation.
 
-Questions the help files do not cover can be passed to a language model
-running on the same machine through Ollama, and the answer is labelled as
-coming from the model. If no model is running, the assistant says so rather
-than guessing.
+Questions the help files do not cover are passed to a hosted language model,
+and the answer is labelled as coming from the model rather than from this
+site. If no model is configured, the assistant says so rather than guessing.
 
 # Privacy
 
@@ -36,6 +35,10 @@ Open Shelf stores your username, a salted and hashed password, the reviews you
 write, the books you look at, and any face photographs you enrol. Photographs
 are stored on the server only for signing in and are never shared.
 
-Passwords are stored with PBKDF2, so the password itself is never kept. Your
-questions to the assistant are answered on the same server; nothing is sent
-to an outside AI service.
+Passwords are stored with PBKDF2, so the password itself is never kept.
+
+Questions about this site are answered on this server, from the help files,
+and go nowhere else. A question the help files do not cover is sent to a
+hosted language model to be answered; the text of that question leaves this
+server, and the answer is labelled so you can tell which happened. Nothing
+is sent along with it: not your name, your account or your reading history.

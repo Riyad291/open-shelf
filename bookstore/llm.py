@@ -1,21 +1,53 @@
-"""Ollama client (spec note 2: "using an Ollama-based free one is more than
-enough").
+"""The hosted language model behind the assistant's general-knowledge answers.
 
-Only ``urllib`` from the standard library is used, so there is no ``requests``
-dependency.  Every failure mode -- Ollama not installed, not running, model not
-pulled, request timed out -- returns a readable message instead of raising, so
-the chat box always says something useful.
+Open Shelf answers questions about itself from local files (``rag.py``).
+Anything the files do not cover is passed here, to a chat-completions API.
+
+**Any OpenAI-compatible provider works**, because they all expose the same
+``POST /chat/completions`` shape. Only the base URL, the model name and the
+key change, and all three come from the environment:
+
+    LLM_API_KEY    required; without it the assistant still answers from the
+                   local files and says the model is not configured
+    LLM_BASE_URL   default https://api.groq.com/openai/v1
+    LLM_MODEL      default llama-3.3-70b-versatile
+
+Groq is the default because its free tier needs no card, which matters for a
+deployed demo. The same code reaches OpenAI, OpenRouter, Together or
+DeepSeek by changing ``LLM_BASE_URL``.
+
+Written against ``urllib`` from the standard library rather than a vendor
+SDK. An SDK here would be one dependency, one more thing to keep current,
+and a layer between this project and an HTTP request that is worth being
+able to read. The whole client is one POST, and the error handling is the
+interesting part.
+
+**The key is read from the environment and never written to a file.** It is
+not in ``config/settings.json``, which is committed, and it is never logged
+or returned in an error message.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Tuple
 
 from .config import Config
+
+#: Groq's free tier. Any OpenAI-compatible endpoint can replace it.
+DEFAULT_BASE_URL = "https://api.groq.com/openai/v1"
+DEFAULT_MODEL = "llama-3.3-70b-versatile"
+
+#: One retry, for the two failures that are worth retrying: a rate limit and
+#: a server-side error. A bad key or a bad request will fail again
+#: identically, so retrying those only makes the person wait twice.
+RETRY_STATUSES = (429, 500, 502, 503, 504)
+RETRY_AFTER_SECONDS = 1.5
 
 
 @dataclass
@@ -26,149 +58,167 @@ class LlmReply:
     error: str = ""
 
 
-class OllamaClient:
+class LlmClient:
+    """A chat-completions client for any OpenAI-compatible provider."""
+
     def __init__(self, config: Config):
         self.cfg = config
 
-    # -- plumbing -----------------------------------------------------------
+    # -- configuration ------------------------------------------------------
+    #
+    # Environment first, then settings.json, then the default. Deployment
+    # sets environment variables; it does not edit a file inside the image.
+
+    def _setting(self, env_name: str, key: str, fallback: str) -> str:
+        return str(os.environ.get(env_name)
+                   or self.cfg.get(key)
+                   or fallback)
 
     @property
     def base_url(self) -> str:
-        return str(self.cfg.get("ollama_url")).rstrip("/")
+        return self._setting("LLM_BASE_URL", "llm_base_url",
+                             DEFAULT_BASE_URL).rstrip("/")
 
     @property
     def model(self) -> str:
-        return str(self.cfg.get("ollama_model"))
+        return self._setting("LLM_MODEL", "llm_model", DEFAULT_MODEL)
 
     @property
     def timeout(self) -> int:
-        return int(self.cfg.get("ollama_timeout_seconds") or 60)
+        return int(self.cfg.get("llm_timeout_seconds") or 30)
 
-    def _post(self, path: str, payload: dict, timeout: Optional[int] = None) -> dict:
-        request = urllib.request.Request(
-            self.base_url + path,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(request, timeout=timeout or self.timeout) as response:
-            return json.loads(response.read().decode("utf-8"))
+    @property
+    def api_key(self) -> str:
+        """The key, from the environment only. Never from a committed file."""
+        return os.environ.get("LLM_API_KEY", "").strip()
 
-    def _get(self, path: str, timeout: int = 5) -> dict:
-        request = urllib.request.Request(self.base_url + path, method="GET")
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            return json.loads(response.read().decode("utf-8"))
+    @property
+    def provider(self) -> str:
+        """A readable name for the host, for status lines and logs."""
+        host = self.base_url.split("//")[-1].split("/")[0]
+        return {"api.groq.com": "Groq",
+                "api.openai.com": "OpenAI",
+                "openrouter.ai": "OpenRouter",
+                "localhost:11434": "Ollama"}.get(host, host)
 
     # -- health -------------------------------------------------------------
 
-    def is_up(self, timeout: int = 3) -> bool:
-        try:
-            self._get("/api/tags", timeout=timeout)
-            return True
-        except Exception:
-            return False
+    def is_up(self) -> bool:
+        """Whether a call is worth attempting.
 
-    def available_models(self) -> List[str]:
-        try:
-            payload = self._get("/api/tags")
-        except Exception:
-            return []
-        return sorted(
-            str(entry.get("name", "")) for entry in (payload.get("models") or [])
-            if entry.get("name")
-        )
+        Deliberately not a network probe. This is called on the health
+        endpoint and before every retrieval-augmented answer, and a probe
+        would spend a request, and a second or two, on each one. A key that
+        is present but wrong fails on the real call, which already degrades
+        gracefully.
+        """
+        return bool(self.api_key)
 
     def status(self) -> Tuple[bool, str]:
-        """Human-readable health line for the chat panel and admin page."""
-        if not self.is_up():
+        if not self.api_key:
             return False, (
-                "Ollama is not reachable at %s. Start it with 'ollama serve', "
-                "then pull a model with 'ollama pull %s'."
-                % (self.base_url, self.model)
+                "No LLM_API_KEY is set, so general questions are unavailable. "
+                "Questions about this site are still answered from its own "
+                "files. Get a free key at https://console.groq.com and set "
+                "LLM_API_KEY."
             )
-        models = self.available_models()
-        if not models:
-            return False, (
-                "Ollama is running but has no models. Run:  ollama pull %s" % self.model
-            )
-        # Ollama tags carry a ':tag' suffix, so match on the bare name too.
-        wanted = self.model.split(":")[0]
-        if not any(m.split(":")[0] == wanted for m in models):
-            return False, (
-                "Ollama is running but '%s' is not pulled. Available: %s. "
-                "Run:  ollama pull %s" % (self.model, ", ".join(models), self.model)
-            )
-        return True, "Ollama ready at %s with model '%s'." % (self.base_url, self.model)
+        return True, "%s ready with model '%s'." % (self.provider, self.model)
 
     # -- generation ---------------------------------------------------------
 
     def generate(self, prompt: str, system: str = "",
                  temperature: float = 0.3) -> LlmReply:
-        payload = {
-            "model": self.model,
-            "prompt": prompt,
-            "stream": False,
-            "options": {"temperature": temperature},
-        }
+        """One question, one answer. Never raises."""
+        if not self.api_key:
+            return LlmReply(False, "", self.model, self.status()[1])
+
+        messages = []
         if system:
-            payload["system"] = system
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
 
-        try:
-            data = self._post("/api/generate", payload)
-        except urllib.error.HTTPError as exc:
-            detail = ""
-            try:
-                detail = exc.read().decode("utf-8", "ignore")[:300]
-            except Exception:
-                pass
-            if exc.code == 404:
-                return LlmReply(
-                    False, "", self.model,
-                    "Model '%s' is not available in Ollama. Run:  ollama pull %s"
-                    % (self.model, self.model),
-                )
-            return LlmReply(False, "", self.model,
-                            "Ollama returned HTTP %s. %s" % (exc.code, detail))
-        except urllib.error.URLError as exc:
-            return LlmReply(
-                False, "", self.model,
-                "Could not reach Ollama at %s (%s). Start it with 'ollama serve'."
-                % (self.base_url, getattr(exc, "reason", exc)),
-            )
-        except TimeoutError:
-            return LlmReply(False, "", self.model,
-                            "Ollama timed out after %ds." % self.timeout)
-        except Exception as exc:  # pragma: no cover - defensive
-            return LlmReply(False, "", self.model, "Ollama call failed: %s" % exc)
-
-        text = str(data.get("response", "")).strip()
-        if not text:
-            return LlmReply(False, "", self.model, "Ollama returned an empty response.")
-        return LlmReply(True, text, self.model)
-
-    def chat(self, messages: List[dict], temperature: float = 0.3) -> LlmReply:
-        """Multi-turn variant, used when the chat panel keeps history."""
         payload = {
             "model": self.model,
             "messages": messages,
+            "temperature": temperature,
             "stream": False,
-            "options": {"temperature": temperature},
         }
-        try:
-            data = self._post("/api/chat", payload)
-        except Exception as exc:
-            # Fall back to the single-prompt endpoint, which older Ollama
-            # builds always have.
-            joined = "\n".join(
-                "%s: %s" % (m.get("role", "user"), m.get("content", ""))
-                for m in messages
-            )
-            reply = self.generate(joined, temperature=temperature)
-            if reply.ok:
+
+        for attempt in (1, 2):
+            reply, retryable = self._post_once(payload)
+            if reply.ok or not retryable or attempt == 2:
                 return reply
-            return LlmReply(False, "", self.model, str(exc))
-        message = (data.get("message") or {}).get("content", "")
-        text = str(message).strip()
+            time.sleep(RETRY_AFTER_SECONDS)
+        return reply                      # pragma: no cover - unreachable
+
+    def _post_once(self, payload: dict) -> Tuple[LlmReply, bool]:
+        """One attempt. Returns the reply and whether retrying could help."""
+        request = urllib.request.Request(
+            self.base_url + "/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                # The one place the key is used. It is not logged, and it is
+                # not put into any error message below.
+                "Authorization": "Bearer " + self.api_key,
+            },
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                data = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            return self._http_error(exc), exc.code in RETRY_STATUSES
+        except urllib.error.URLError as exc:
+            return LlmReply(
+                False, "", self.model,
+                "Could not reach %s (%s)."
+                % (self.provider, getattr(exc, "reason", exc))), True
+        except TimeoutError:
+            return LlmReply(False, "", self.model,
+                            "%s timed out after %ds."
+                            % (self.provider, self.timeout)), True
+        except Exception as exc:          # pragma: no cover - defensive
+            return LlmReply(False, "", self.model,
+                            "The model call failed: %s" % exc), False
+
+        try:
+            text = data["choices"][0]["message"]["content"].strip()
+        except (KeyError, IndexError, TypeError, AttributeError):
+            return LlmReply(False, "", self.model,
+                            "%s returned a response in an unexpected shape."
+                            % self.provider), False
+
         if not text:
-            return LlmReply(False, "", self.model, "Ollama returned an empty response.")
-        return LlmReply(True, text, self.model)
+            return LlmReply(False, "", self.model,
+                            "%s returned an empty answer." % self.provider), False
+        return LlmReply(True, text, self.model), False
+
+    def _http_error(self, exc: urllib.error.HTTPError) -> LlmReply:
+        """Turn a status code into something a person can act on."""
+        detail = ""
+        try:
+            body = json.loads(exc.read().decode("utf-8", "ignore"))
+            detail = str((body.get("error") or {}).get("message", ""))[:200]
+        except Exception:
+            pass
+
+        if exc.code == 401:
+            message = ("%s rejected the API key. Check LLM_API_KEY."
+                       % self.provider)
+        elif exc.code == 404:
+            message = ("%s has no model called '%s'. Set LLM_MODEL to one it "
+                       "offers." % (self.provider, self.model))
+        elif exc.code == 429:
+            message = ("%s is rate-limiting this key. Try again shortly."
+                       % self.provider)
+        elif exc.code >= 500:
+            message = "%s is having trouble (HTTP %d)." % (self.provider,
+                                                           exc.code)
+        else:
+            message = "%s returned HTTP %d." % (self.provider, exc.code)
+
+        if detail:
+            message += " " + detail
+        return LlmReply(False, "", self.model, message)

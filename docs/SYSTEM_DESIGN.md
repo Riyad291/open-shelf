@@ -68,8 +68,8 @@ a subset of it, and each section says which parts exist.
              │  (planned, weekly). No queue.                 │
              └───────────────────────────────────────────────┘
 
-   Optional: an LLM (Ollama locally) behind the assistant. Without it, the
-   assistant still answers from the local knowledge base.
+   Optional: a hosted LLM behind the assistant, reached over HTTPS. Without
+   a key, the assistant still answers from the local knowledge base.
 ```
 
 **A reader arriving from a search engine.** The browser requests a resource

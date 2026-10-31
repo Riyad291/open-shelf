@@ -85,9 +85,11 @@ DEFAULTS: Dict[str, Any] = {
     },
     "rag_min_similarity": 0.15,
     "rag_top_k": 3,
-    "ollama_url": "http://localhost:11434",
-    "ollama_model": "llama3.2",
-    "ollama_timeout_seconds": 60,
+    # The LLM endpoint. The API key is never here: it comes from the
+    # LLM_API_KEY environment variable, because settings.json is committed.
+    "llm_base_url": "https://api.groq.com/openai/v1",
+    "llm_model": "llama-3.3-70b-versatile",
+    "llm_timeout_seconds": 30,
     "recommendation_count": 3,
     "image_search_results": 8,
     "shelfscan_match_threshold": 0.55,
