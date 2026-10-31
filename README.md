@@ -1,8 +1,8 @@
 # Open Shelf
 
 **Live: [open-shelf-1qsl.onrender.com](https://open-shelf-1qsl.onrender.com/app/)**
-— a free tier, so the first request after a quiet spell waits for the
-container to wake.
+— demo accounts: `margaret` / `admin123` (administrator), `alice` / `alice123`
+(member), `carol` / `carol123` (trusted contributor).
 
 [![CI](https://github.com/Riyad291/open-shelf/actions/workflows/ci.yml/badge.svg)](https://github.com/Riyad291/open-shelf/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11%20%E2%80%93%203.12-blue)
@@ -87,7 +87,7 @@ Measured on PostgreSQL with sixteen simultaneous checkouts:
 
 `CHECK (stock >= 0)` does *not* fix this, and it is worth knowing why: in a
 lost update every session reads 1 and writes 0, so no row goes negative and
-the constraint never fires. Preserved at the `v1.0-desktop` tag and in
+the constraint never fires. Preserved in [the desktop version](https://github.com/Riyad291/open-shelf/tree/2e6cc23) and in
 [ADR-001](docs/adr/ADR-001-postgresql-and-web-only.md).
 
 **Importing the same catalogue twice.** The importer runs on a schedule and
@@ -236,8 +236,10 @@ Stated here rather than left to be found.
   That is deliberate — the management views are worth seeing — but it means
   anyone can delete a book. The catalogue re-imports itself on the next boot
   if it is emptied.
-- **A free tier sleeps.** The first request after a quiet spell waits for the
-  container to start.
+- **A free tier sleeps.** Render stops the container after 15 idle minutes.
+  A [scheduled workflow](.github/workflows/keepalive.yml) requests a static
+  page every 10 minutes to keep it up, and leaves the database free to sleep.
+  GitHub sometimes runs schedules late, so a cold start can still happen.
 
 ## Attribution
 

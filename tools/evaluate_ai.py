@@ -12,7 +12,7 @@ Three things are measured, each against a labelled set written down below:
    share words with the files ("a trusted editor on Wikipedia") -- and
    must not be.
 2. **Tiering.** The same question gives different access to different
-   roles (The tiered assistant:).
+   roles: visitors, members, trusted contributors and administrators.
 3. **Picture search.** Each demo cover, uploaded, must find its own book.
 
 The run fails (exit status 1) when any figure falls below its threshold, so

@@ -108,8 +108,8 @@ re-run, so a cron job can keep the catalogue fresh.
 on thousands of rows, not a demo shelf of ten.
 
 **Lost.** The checkout race, measured at 9 of 16 oversold without a row lock and
-1 of 16 with one, stops being live code. It is preserved in ADR-001 and at
-the `v1.0-desktop` tag.
+1 of 16 with one, stops being live code. It is preserved in ADR-001 and in
+[the desktop version](https://github.com/Riyad291/open-shelf/tree/2e6cc23).
 
 **To revisit.** Semantic search once the catalogue is large enough to need it;
 a second source once the first is solid.
@@ -127,4 +127,4 @@ a second source once the first is solid.
 - [ ] 9. Link checker
 - [ ] 10. Semantic search, measured against the existing evaluation set
 - [ ] 11. Rate limiting
-- [ ] 12. Deploy
+- [x] 12. Deploy ([live](https://open-shelf-1qsl.onrender.com/app/))

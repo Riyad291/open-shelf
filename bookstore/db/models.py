@@ -13,7 +13,7 @@ finds the row it wrote last time instead of writing another.
 
 This schema had a shop in it -- carts, orders, payments, balances. It was
 removed when the project became a free platform; ADR-002 records why, and
-the ``v1.0-desktop`` tag keeps the version with the checkout race in it.
+commit ``2e6cc23`` keeps the version with the checkout race in it.
 """
 
 from __future__ import annotations

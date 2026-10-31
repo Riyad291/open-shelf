@@ -3,14 +3,14 @@
 **Status:** Accepted
 **Date:** 2026-10-12
 **Deciders:** Project owner
-**Supersedes:** the storage and client decisions implicit in `v1.0-desktop`
+**Supersedes:** the storage and client decisions implicit in the desktop version (commit `2e6cc23`)
 
 ## Context
 
 The first version was a Tkinter desktop application storing records in
 atomic JSON files -- no database, no web interface. It worked: 198 tests
-passing, every feature implemented. That version is preserved at the
-`v1.0-desktop` tag.
+passing, every feature implemented. That version is preserved in
+[the desktop version](https://github.com/Riyad291/open-shelf/tree/2e6cc23).
 
 Four things about it do not survive contact with its actual audience, which
 is someone deciding whether to read further:
@@ -79,7 +79,7 @@ is someone deciding whether to read further:
    become the only interface.
 3. **Add the e-commerce entities** the current model lacks: cart, cart items,
    order, order items, payment.
-4. **Keep `v1.0-desktop` tagged**, so the original design stays readable.
+4. **Keep the desktop version reachable in history** (commit `2e6cc23`), so the original design stays readable.
 
 ## Options considered
 
@@ -183,7 +183,7 @@ branch in the domain code.
 
 - The two original constraints -- a local GUI, and records in text files
   rather than a database. Both are deliberately given up here, and
-  `v1.0-desktop` preserves the version that kept them.
+  commit `2e6cc23` preserves the version that kept them.
 - The Tkinter client, with its camera dialog and Shelf Scan view. The
   underlying biometric and shelf-scanning code is retained and exposed over
   HTTP instead — the logic is not being deleted, only its desktop window.

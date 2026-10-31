@@ -198,7 +198,7 @@ Before Open Shelf was free (ADR-002), checkout checked stock and then
 decremented it. Sixteen simultaneous checkouts of one copy: **9 of 16** paid
 without a row lock, 1 of 16 with `SELECT … FOR UPDATE`. `CHECK (stock >= 0)`
 does not catch it — in a lost update every session reads 1 and writes 0, so
-no row goes negative. That code is preserved at the `v1.0-desktop` tag.
+no row goes negative. That code is preserved in [the desktop version](https://github.com/Riyad291/open-shelf/tree/2e6cc23).
 
 ---
 

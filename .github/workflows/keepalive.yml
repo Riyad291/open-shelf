@@ -1,0 +1,39 @@
+# Keep the free Render instance awake.
+#
+# Render's free tier stops a web service after 15 minutes without a request,
+# and the next visitor waits about a minute while it starts again. A request
+# every 10 minutes keeps it running.
+#
+# It requests /app/, a static page, on purpose. /api/health queries the
+# database, which would also keep the Neon database awake around the clock
+# and spend its free compute allowance. The database is left to sleep; it
+# wakes in about a second on the first real query.
+#
+# Limits worth knowing:
+# - GitHub may run scheduled jobs late when it is busy, so an occasional cold
+#   start can still happen.
+# - GitHub turns scheduled workflows off after 60 days with no commits.
+#   Re-enable it from the Actions tab.
+# - One always-on service uses about 744 of Render's 750 free hours a month,
+#   so this works for one service, not two.
+
+name: Keep alive
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Request the site
+        run: |
+          curl --fail --silent --show-error --output /dev/null \
+               --retry 3 --retry-delay 20 --max-time 90 \
+               --write-out "HTTP %{http_code} in %{time_total}s\n" \
+               https://open-shelf-1qsl.onrender.com/app/
