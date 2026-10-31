@@ -1,5 +1,9 @@
 # Open Shelf
 
+**Live: [open-shelf-1qsl.onrender.com](https://open-shelf-1qsl.onrender.com/app/)**
+— a free tier, so the first request after a quiet spell waits for the
+container to wake.
+
 [![CI](https://github.com/Riyad291/open-shelf/actions/workflows/ci.yml/badge.svg)](https://github.com/Riyad291/open-shelf/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11%20%E2%80%93%203.12-blue)
 ![Tests](https://img.shields.io/badge/tests-176%20passing-brightgreen)

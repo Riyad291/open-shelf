@@ -40,7 +40,7 @@ services:
       # origin, so no cross-origin request needs allowing. "*" is the
       # development default and would be wrong here.
       - key: CORS_ORIGINS
-        value: https://open-shelf.onrender.com
+        value: https://open-shelf-1qsl.onrender.com
 
       - key: PYTHONUNBUFFERED
         value: "1"
